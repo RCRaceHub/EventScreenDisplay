@@ -1,6 +1,8 @@
 # Shared apt repository (design)
 
-Status: **proposal**, nothing set up yet.
+Status: **built, waiting to be published.** The tooling is ready to go
+into a new public `RCRaceHub/apt` repository; see that repo's README for the
+one-time setup (Pages, signing key secret). Packages are public.
 
 Goal: one signed apt repository for every RCRaceHub package (this viewer
 and the other projects' packages), so a Pi or server is set up once and then
@@ -37,13 +39,14 @@ from the GitHub releases of each project.**
 
 ### Source list
 
-```yaml
-# RCRaceHub/apt: sources.yml
-sources:
-  - repo: RCRaceHub/EventScreenDisplay
-  - repo: RCRaceHub/<other-project>
-keep_versions: 5   # older versions stay downloadable for rollbacks
 ```
+# RCRaceHub/apt: sources.txt
+RCRaceHub/EventScreenDisplay
+RCRaceHub/<other-project>
+```
+
+The newest 5 releases of each repo are kept (`KEEP_RELEASES`), so older
+versions stay downloadable for rollbacks.
 
 ### Suites
 
@@ -58,12 +61,12 @@ the other project can ship architecture-specific packages alongside this
 
 ### When it rebuilds
 
-- **On a schedule** (for example every 30 minutes) and **by hand** from the
+- **Hourly**, on every push to the apt repo, and **by hand** from the
   Actions tab. Needs no extra secrets for public source repos.
-- **Straight after a release**, optionally: each project's release job sends
-  a `repository_dispatch` to `RCRaceHub/apt`. That needs a token with access
-  to the apt repo stored as a secret in each project (a fine-grained personal
-  access token or a GitHub App), so it can come later.
+- **Straight after a release**, optionally. This project's release job sends
+  a `repository_dispatch` to `RCRaceHub/apt` when the `APT_DISPATCH_TOKEN`
+  secret is set (a fine-grained token with Contents read/write on
+  `RCRaceHub/apt` only). Without it, releases appear within the hour.
 
 ### Signing
 
@@ -116,11 +119,12 @@ manager could trigger upgrades on screens when it knows nothing is running.
 
 ## Steps to set it up
 
-1. Create `RCRaceHub/apt` (public) and turn on GitHub Pages from GitHub Actions.
-2. Generate the signing key; add it as the `APT_SIGNING_KEY` secret; keep an
-   offline backup.
-3. Add `sources.yml` and the build workflow; run it by hand once.
+1. Create `RCRaceHub/apt` (public) with the prepared tooling, and turn on
+   GitHub Pages with the source set to GitHub Actions.
+2. Run `scripts/new-signing-key.sh` there, add the private key as the
+   `APT_SIGNING_KEY` secret and keep an offline backup.
+3. Tag a release here (`v0.2.0`) so there's a package to publish, then run
+   the publish workflow.
 4. Point one Pi at it and check `apt install eventscreen` works.
-5. Add the other project to `sources.yml`.
-6. Optionally add the `repository_dispatch` step to each project's release
-   job.
+5. Add the other project to `sources.txt`.
+6. Optionally add `APT_DISPATCH_TOKEN` to each project.
