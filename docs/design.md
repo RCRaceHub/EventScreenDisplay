@@ -133,6 +133,16 @@ advertises:
 
 Avahi ships with Raspberry Pi OS, so the agent doesn't need its own mDNS code.
 
+Every screen advertising the same service type is expected and is how
+DNS-SD works: the type (`_eventscreen._tcp`) is shared, and each screen
+publishes its own instance under it, named `EventScreen <hostname>`, with its
+own address. A manager browsing the type gets one result per screen. The
+only clash is two screens with the **same hostname**, usually from cloning
+an SD card. Avahi then renames the newcomer (`screen-01-2.local`,
+`EventScreen screen-01 #2`), so both keep working, but it's confusing. Give
+every screen its own `--hostname` (and so its own `id`), and a manager
+should key screens on `id` rather than on the instance name.
+
 ### Running as a service
 
 The `eventscreen` systemd unit runs the agent as an unprivileged
