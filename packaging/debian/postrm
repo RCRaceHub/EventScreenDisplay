@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove)
+        # Stop advertising a screen that is no longer there.
+        rm -f /etc/avahi/services/eventscreen.service
+        if [ -d /run/systemd/system ]; then
+            systemctl disable eventscreen.service >/dev/null 2>&1 || true
+            systemctl daemon-reload || true
+        fi
+        ;;
+    purge)
+        rm -f /etc/avahi/services/eventscreen.service
+        rm -rf /var/lib/eventscreen
+        ;;
+esac
+
+exit 0

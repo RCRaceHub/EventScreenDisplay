@@ -6,15 +6,18 @@ After=network-online.target avahi-daemon.service systemd-user-sessions.service
 [Service]
 Type=simple
 User=eventscreen
-SupplementaryGroups=video render input
-WorkingDirectory=/opt/eventscreen
-Environment=PYTHONPATH=/opt/eventscreen
+# Display access comes from the video/render/input groups the package adds
+# the user to (not SupplementaryGroups, which fails if a group is missing).
+WorkingDirectory=/usr/lib/eventscreen
+Environment=PYTHONPATH=/usr/lib/eventscreen
 Environment=PYTHONUNBUFFERED=1
 # Needed by Wayland (cage) and handy for Cog.
 RuntimeDirectory=eventscreen
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/eventscreen
 StateDirectory=eventscreen
+# Keep the mDNS advertisement in step with the config ("+" runs it as root).
+ExecStartPre=+/usr/bin/python3 -m eventscreen.avahi --config /etc/eventscreen/config.toml
 # dbus-run-session gives the agent and Cog a private session bus, which is
 # how the agent tells Cog to change page.
 ExecStart=/usr/bin/dbus-run-session -- /usr/bin/python3 -m eventscreen --config /etc/eventscreen/config.toml

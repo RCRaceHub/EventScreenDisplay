@@ -1,0 +1,17 @@
+Package: eventscreen
+Version: @VERSION@
+Architecture: all
+Maintainer: @MAINTAINER@
+Section: web
+Priority: optional
+Homepage: https://github.com/RCRaceHub/EventScreenDisplay
+Depends: python3 (>= 3.11), dbus, avahi-daemon, adduser
+Recommends: cog, libnss-mdns, fonts-dejavu-core
+Suggests: cage, seatd, chromium-browser
+Installed-Size: @SIZE@
+Description: Lightweight web page viewer for Raspberry Pi event screens
+ Cycles a full-screen kiosk browser through a playlist of web pages, such
+ as live RCTC timing boards, on a Raspberry Pi Zero 2 W or Pi 3. Controlled
+ over a small local HTTP API and advertised on the LAN with mDNS so a
+ central manager can find it. Runs unattended and recovers by itself from
+ Wi-Fi drops, server restarts and browser crashes.

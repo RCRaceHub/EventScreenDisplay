@@ -123,9 +123,11 @@ advertise 4K first, which a Pi Zero 2 W can't render smoothly.
 
 ### Discovery (mDNS)
 
-`install.sh` sets the hostname (for example `screen-01`) and installs an
-Avahi service file. Every screen then answers as `screen-01.local` and
-advertises:
+`eventscreen-setup` sets the hostname (for example `screen-01`), and the
+service writes an Avahi service file from the config each time it starts
+(`python3 -m eventscreen.avahi`, run as root by `ExecStartPre`), so the
+advertised port and id can't drift from the config. Every screen then
+answers as `screen-01.local` and advertises:
 
 - `_eventscreen._tcp` on the API port, with TXT records `id`, `api=/api/v1`
   and `version`. This is what a manager browses for.
@@ -150,6 +152,28 @@ The `eventscreen` systemd unit runs the agent as an unprivileged
 groups). It's wrapped in `dbus-run-session` so the agent and Cog share a
 private D-Bus session bus. systemd restarts the agent if it dies, and the
 agent restarts the browser if it dies.
+
+### Packaging
+
+The agent ships as one Debian package, `eventscreen_<version>_all.deb`.
+Because it's pure Python there's nothing to compile, so the same package
+works on every Pi model and on 32- or 64-bit Raspberry Pi OS.
+
+- `packaging/build-deb.sh` assembles the package with plain `dpkg-deb`, so
+  it builds anywhere (a laptop, a Pi, CI) without the full Debian toolchain.
+  The version comes from `eventscreen/__init__.py`.
+- The package holds everything that's the same on every Pi: code, service,
+  default config (a conffile, so upgrades keep local edits), Wi-Fi power-save
+  and watchdog settings. `postinst` creates the `eventscreen` user and starts
+  the service.
+- Anything per-Pi or touching boot settings (hostname, HDMI mode, console)
+  lives in `eventscreen-setup`, because a package shouldn't change those
+  silently on install.
+- The **Build** GitHub Action runs the tests, shellchecks the scripts, builds
+  the package and test-installs it on every push and PR. Pushing a `v*` tag
+  attaches the `.deb` to a GitHub release. See [releasing.md](releasing.md).
+- A shared apt repository for this and other RCRaceHub packages is designed
+  in [apt-repository.md](apt-repository.md).
 
 ## Designed for a central manager
 

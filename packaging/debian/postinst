@@ -1,0 +1,34 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = configure ]; then
+    if ! getent passwd eventscreen >/dev/null; then
+        adduser --quiet --system --group --home /var/lib/eventscreen --no-create-home \
+            --gecos "EventScreenDisplay viewer" eventscreen
+    fi
+    # Access to the display, GPU and input devices.
+    for g in video render input _seatd; do
+        if getent group "$g" >/dev/null; then
+            adduser eventscreen "$g" >/dev/null
+        fi
+    done
+    install -d -o eventscreen -g eventscreen -m 0755 /var/lib/eventscreen
+    # The config may hold the API token.
+    chgrp eventscreen /etc/eventscreen/config.toml
+    chmod 0640 /etc/eventscreen/config.toml
+
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload
+        systemctl enable eventscreen.service >/dev/null 2>&1 || true
+        systemctl restart eventscreen.service || true
+    else
+        # Building an image in a chroot: just enable it for first boot.
+        systemctl enable eventscreen.service >/dev/null 2>&1 || true
+    fi
+
+    if [ -z "$2" ]; then
+        echo "eventscreen installed. Now run: sudo eventscreen-setup --hostname screen-01"
+    fi
+fi
+
+exit 0

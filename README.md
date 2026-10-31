@@ -18,14 +18,17 @@ on a TV, and is controlled over the network through a simple HTTP API.
 
 ## Quick start
 
-On a Pi running Raspberry Pi OS Lite:
+On a Pi running Raspberry Pi OS Lite, install the `.deb` from the
+[latest release](https://github.com/RCRaceHub/EventScreenDisplay/releases/latest)
+and set the screen up:
 
 ```bash
-git clone https://github.com/RCRaceHub/EventScreenDisplay.git
-cd EventScreenDisplay
-sudo ./deploy/install.sh --hostname screen-01 --name "Pit lane board"
+sudo apt install ./eventscreen_*_all.deb
+sudo eventscreen-setup --hostname screen-01 --name "Pit lane board"
 sudo reboot
 ```
+
+Or from a git checkout: `sudo ./deploy/install.sh --hostname screen-01`.
 
 Then from any machine on the network:
 
@@ -41,6 +44,8 @@ curl -X PUT http://screen-01.local:8080/api/v1/playlist \
 - [Installation](docs/installation.md): setting up a Pi, updating, troubleshooting.
 - [Design and features](docs/design.md): how it works and why.
 - [API reference](docs/API.md): the contract for the central manager.
+- [Releasing](docs/releasing.md): versioning and publishing the `.deb`.
+- [Apt repository](docs/apt-repository.md): proposed shared apt repo for RCRaceHub packages.
 
 ## Development
 
@@ -58,11 +63,19 @@ Run the tests:
 python3 -m unittest -v
 ```
 
+Build the Debian package (needs `dpkg-deb`):
+
+```bash
+packaging/build-deb.sh   # -> dist/eventscreen_<version>_all.deb
+```
+
 ## Layout
 
 ```
 eventscreen/   the viewer agent (Python package)
-deploy/        install.sh, systemd unit, mDNS service, example config
+deploy/        files the package installs (service, config, eventscreen-setup) and install.sh
+packaging/     build-deb.sh and the Debian maintainer scripts
+.github/       CI: tests, package build, release upload
 docs/          user, install, design and API docs
 tests/         end-to-end API tests using the dummy browser
 ```
