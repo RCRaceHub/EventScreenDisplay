@@ -1,0 +1,27 @@
+[Unit]
+Description=EventScreenDisplay viewer agent
+Wants=network-online.target avahi-daemon.service
+After=network-online.target avahi-daemon.service systemd-user-sessions.service
+
+[Service]
+Type=simple
+User=eventscreen
+SupplementaryGroups=video render input
+WorkingDirectory=/opt/eventscreen
+Environment=PYTHONPATH=/opt/eventscreen
+Environment=PYTHONUNBUFFERED=1
+# Needed by Wayland (cage) and handy for Cog.
+RuntimeDirectory=eventscreen
+RuntimeDirectoryMode=0700
+Environment=XDG_RUNTIME_DIR=/run/eventscreen
+StateDirectory=eventscreen
+# dbus-run-session gives the agent and Cog a private session bus, which is
+# how the agent tells Cog to change page.
+ExecStart=/usr/bin/dbus-run-session -- /usr/bin/python3 -m eventscreen --config /etc/eventscreen/config.toml
+Restart=always
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

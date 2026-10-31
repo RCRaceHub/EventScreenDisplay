@@ -1,0 +1,20 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Installed to /etc/avahi/services/eventscreen.service by deploy/install.sh -->
+<service-group>
+  <name replace-wildcards="yes">EventScreen %h</name>
+  <!-- What a manager browses for to find screens. -->
+  <service>
+    <type>_eventscreen._tcp</type>
+    <port>@PORT@</port>
+    <txt-record>id=@ID@</txt-record>
+    <txt-record>api=/api/v1</txt-record>
+    <txt-record>version=@VERSION@</txt-record>
+  </service>
+  <!-- Also shows up in generic HTTP service browsers. -->
+  <service>
+    <type>_http._tcp</type>
+    <port>@PORT@</port>
+    <txt-record>path=/</txt-record>
+  </service>
+</service-group>

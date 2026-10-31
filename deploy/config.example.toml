@@ -1,0 +1,34 @@
+# EventScreenDisplay viewer agent configuration.
+# Installed to /etc/eventscreen/config.toml. Restart the service after editing:
+#   sudo systemctl restart eventscreen
+
+# Stable id the central manager uses for this screen. Defaults to the hostname.
+# screen_id = "screen-01"
+
+# Friendly name shown on the idle screen and reported by the API.
+# name = "Pit lane board"
+
+# HTTP API.
+listen = "0.0.0.0"
+port = 8080
+
+# If set, every PUT/POST/DELETE must send "Authorization: Bearer <token>".
+# Reads (GET) stay open so the screen is easy to discover and monitor.
+# api_token = "change-me"
+
+# Browser driver: "cog" (WPE WebKit, lightest, recommended on a Pi Zero 2 W),
+# "chromium" (heavier fallback) or "dummy" (no display, for testing).
+browser = "cog"
+
+# Extra command-line arguments for the browser, for example to zoom pages
+# for a small display with Cog:  browser_args = ["--scale=1.5"]
+browser_args = []
+
+# Seconds each page stays up when the playlist doesn't say.
+default_duration = 30
+
+# Smallest dwell time the API will accept.
+min_duration = 5
+
+# Where the playlist is saved so it survives a reboot.
+state_dir = "/var/lib/eventscreen"
