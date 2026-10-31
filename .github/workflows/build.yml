@@ -1,0 +1,64 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write  # to attach the .deb to a release
+
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Oldest Python the package supports (Raspberry Pi OS Bookworm).
+          python-version: "3.11"
+
+      - name: Test
+        run: python -m unittest -v
+
+      - name: Check shell scripts
+        run: |
+          shellcheck -S warning deploy/install.sh deploy/eventscreen-setup packaging/build-deb.sh
+          shellcheck -S warning -s sh packaging/debian/postinst packaging/debian/prerm packaging/debian/postrm
+
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' eventscreen/__init__.py)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME doesn't match __version__ $version"
+            exit 1
+          fi
+
+      - name: Build .deb
+        run: packaging/build-deb.sh
+
+      - name: Install it
+        run: |
+          sudo apt-get update
+          # avahi-daemon etc. come from Ubuntu here; cog is only Recommended.
+          sudo apt-get install -y ./dist/eventscreen_*_all.deb
+          test -x /usr/sbin/eventscreen-setup
+          PYTHONPATH=/usr/lib/eventscreen python3 -c "import eventscreen; print(eventscreen.__version__)"
+          sudo apt-get purge -y eventscreen
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eventscreen-deb
+          path: dist/*.deb
+
+      - name: Attach to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.deb --title "$GITHUB_REF_NAME" --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" dist/*.deb --clobber

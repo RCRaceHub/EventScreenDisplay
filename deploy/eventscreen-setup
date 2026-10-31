@@ -1,0 +1,131 @@
+#!/bin/bash
+# Per-Pi setup for the eventscreen package. Run once after installing it,
+# and again whenever you want to change these settings.
+#
+#   sudo eventscreen-setup [--hostname screen-01] [--name "Pit lane board"]
+#                          [--browser cog|chromium] [--port 8080] [--token SECRET]
+#                          [--resolution 1920x1080@60|auto]
+#
+# It sets the hostname, fixes the HDMI mode (1080p by default), keeps the
+# console from blanking or showing a login prompt, writes your options into
+# /etc/eventscreen/config.toml and restarts the viewer. Boot changes need a
+# reboot to take effect.
+set -euo pipefail
+
+HOSTNAME_NEW=""
+BROWSER=""
+NAME=""
+PORT=""
+TOKEN=""
+RESOLUTION=""
+
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --hostname)   HOSTNAME_NEW="$2"; shift 2 ;;
+    --browser)    BROWSER="$2"; shift 2 ;;
+    --name)       NAME="$2"; shift 2 ;;
+    --port)       PORT="$2"; shift 2 ;;
+    --token)      TOKEN="$2"; shift 2 ;;
+    --resolution) RESOLUTION="$2"; shift 2 ;;
+    -h|--help)    usage 0 ;;
+    *) echo "unknown option: $1" >&2; usage 1 ;;
+  esac
+done
+
+if [[ $EUID -ne 0 ]]; then
+  echo "run me with sudo" >&2
+  exit 1
+fi
+
+CONF=/etc/eventscreen/config.toml
+REBOOT=""
+
+step() { echo; echo "==> $*"; }
+
+set_conf() {  # set_conf key 'toml value'
+  if grep -qE "^#? *$1 *=" "$CONF"; then
+    sed -i -E "s|^#? *$1 *=.*|$1 = $2|" "$CONF"
+  else
+    echo "$1 = $2" >> "$CONF"
+  fi
+}
+
+if [[ -n "$BROWSER" ]]; then
+  case "$BROWSER" in
+    cog)      PKGS=(cog) ;;
+    chromium) PKGS=(cage seatd chromium-browser) ;;
+    dummy)    PKGS=() ;;
+    *) echo "unknown browser: $BROWSER" >&2; exit 1 ;;
+  esac
+  if [[ ${#PKGS[@]} -gt 0 ]]; then
+    step "Installing packages for browser=$BROWSER"
+    apt-get install -y --no-install-recommends "${PKGS[@]}"
+  fi
+  if [[ $BROWSER == chromium ]]; then
+    systemctl enable --now seatd
+    if getent group _seatd >/dev/null; then usermod -aG _seatd eventscreen; fi
+  fi
+  set_conf browser "\"$BROWSER\""
+fi
+if [[ -n "$NAME"  ]]; then set_conf name "\"$NAME\""; fi
+if [[ -n "$PORT"  ]]; then set_conf port "$PORT"; fi
+if [[ -n "$TOKEN" ]]; then set_conf api_token "\"$TOKEN\""; fi
+
+if [[ -n "$HOSTNAME_NEW" && "$HOSTNAME_NEW" != "$(hostname)" ]]; then
+  step "Setting hostname to $HOSTNAME_NEW (reachable as $HOSTNAME_NEW.local)"
+  hostnamectl set-hostname "$HOSTNAME_NEW"
+  if grep -q '^127\.0\.1\.1' /etc/hosts; then
+    sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$HOSTNAME_NEW/" /etc/hosts
+  else
+    printf '127.0.1.1\t%s\n' "$HOSTNAME_NEW" >> /etc/hosts
+  fi
+  REBOOT=1
+fi
+
+step "Tuning the display for a kiosk"
+CMDLINE=/boot/firmware/cmdline.txt
+[[ -f $CMDLINE ]] || CMDLINE=/boot/cmdline.txt
+if [[ -f $CMDLINE ]]; then
+  BEFORE=$(cat "$CMDLINE")
+  # Stop the text console blanking the screen.
+  if ! grep -q consoleblank= "$CMDLINE"; then
+    sed -i '1 s/$/ consoleblank=0/' "$CMDLINE"
+  fi
+  # Pin the HDMI mode to 1080p by default. TVs often advertise 4K, which a
+  # Pi Zero 2 W can't drive smoothly. An existing mode (for example one with
+  # rotation added by hand) is kept unless --resolution is given.
+  if [[ -n "$RESOLUTION" ]] || ! grep -q 'video=HDMI-A-1:' "$CMDLINE"; then
+    sed -i -E 's/ ?video=HDMI-A-1:[^ ]*//' "$CMDLINE"
+    RESOLUTION=${RESOLUTION:-1920x1080@60}
+    if [[ $RESOLUTION != auto ]]; then
+      sed -i "1 s/\$/ video=HDMI-A-1:$RESOLUTION/" "$CMDLINE"
+    fi
+  fi
+  [[ "$BEFORE" == "$(cat "$CMDLINE")" ]] || REBOOT=1
+else
+  echo "no cmdline.txt found; skipping display settings (not a Raspberry Pi?)"
+fi
+# Keep the login prompt off the HDMI console; SSH still works.
+if systemctl is-enabled getty@tty1.service >/dev/null 2>&1; then
+  systemctl disable getty@tty1.service
+  REBOOT=1
+fi
+
+step "Restarting the viewer"
+systemctl restart eventscreen
+
+PORT=$(sed -n 's/^port *= *\([0-9]*\).*/\1/p' "$CONF" | head -n1)
+cat <<EOF
+
+Done.
+
+  API:     http://$(hostname).local:${PORT:-8080}/api/v1/status
+  Config:  $CONF
+  Logs:    journalctl -u eventscreen -f
+EOF
+if [[ -n $REBOOT ]]; then
+  echo
+  echo "Reboot to apply the display and hostname changes: sudo reboot"
+fi

@@ -36,50 +36,83 @@ writing the SD card and downloading packages.
 
 ## 2. Install the viewer
 
-From your laptop, on the same network:
+The viewer comes as a Debian package, `eventscreen`. From your laptop, on the
+same network:
 
 ```bash
 ssh <you>@screen-01.local
-sudo apt-get update && sudo apt-get install -y git
-git clone https://github.com/RCRaceHub/EventScreenDisplay.git
-cd EventScreenDisplay
-sudo ./deploy/install.sh --hostname screen-01 --name "Pit lane board"
+# Download the latest .deb from the GitHub releases page:
+#   https://github.com/RCRaceHub/EventScreenDisplay/releases/latest
+wget https://github.com/RCRaceHub/EventScreenDisplay/releases/download/v0.2.0/eventscreen_0.2.0_all.deb
+sudo apt-get update
+sudo apt install ./eventscreen_0.2.0_all.deb
+sudo eventscreen-setup --hostname screen-01 --name "Pit lane board"
 sudo reboot
 ```
+
+Change `0.2.0` to the latest version on the releases page. Once the RCRaceHub
+apt repository is set up (see [apt-repository.md](apt-repository.md)) this
+becomes `sudo apt install eventscreen`.
 
 After the reboot the TV shows the idle screen with the screen's name and API
 address. It's ready for a playlist; see the [user guide](user-guide.md).
 From now on the Pi only needs power and HDMI: it comes straight back to its
 playlist every time it's switched on.
 
-### Installer options
+### Installing from a git checkout instead
+
+For testing unreleased changes, `deploy/install.sh` builds the package from
+the source, installs it and runs `eventscreen-setup` with the same options:
+
+```bash
+sudo apt-get install -y git
+git clone https://github.com/RCRaceHub/EventScreenDisplay.git
+cd EventScreenDisplay
+sudo ./deploy/install.sh --hostname screen-01 --name "Pit lane board"
+```
+
+### eventscreen-setup options
+
+Run `sudo eventscreen-setup` again at any time to change these. Options you
+leave out stay as they are.
 
 | Option | Meaning |
 | --- | --- |
 | `--hostname NAME` | Sets the Pi's hostname, so it is reachable as `NAME.local`. |
 | `--name "TEXT"` | Friendly name shown on the idle screen and in the API. |
-| `--browser cog\|chromium` | Browser to use. Default `cog` (recommended). |
+| `--browser cog\|chromium` | Browser to use. Default `cog` (recommended). `chromium` installs Chromium and the `cage` compositor. |
 | `--port N` | API port. Default 8080. |
 | `--token SECRET` | Require `Authorization: Bearer SECRET` for any change. |
 | `--resolution MODE` | HDMI mode. Default `1920x1080@60`. `auto` uses whatever the TV prefers. Add rotation like `1920x1080@60,rotate=90`. |
 
-### What the installer does
+### What gets installed
 
-1. Installs `python3`, `dbus`, `avahi-daemon` and the browser (`cog`, or
-   `cage` + `seatd` + `chromium-browser`).
-2. Sets the hostname if asked.
-3. Creates an `eventscreen` system user with access to the display.
-4. Copies the agent to `/opt/eventscreen`.
-5. Creates `/etc/eventscreen/config.toml` from `deploy/config.example.toml`
-   (an existing config is kept; command-line options are written into it).
-6. Installs the mDNS advertisement in `/etc/avahi/services/`.
-7. Fixes the HDMI output at 1920x1080 (`video=HDMI-A-1:1920x1080@60` in
+**The package** (`apt install`) does everything that is the same on every Pi:
+
+1. Pulls in `python3`, `dbus`, `avahi-daemon` and, as recommended packages,
+   the `cog` browser, `libnss-mdns` and a font.
+2. Installs the agent to `/usr/lib/eventscreen` and the `eventscreen`
+   systemd service, then enables and starts it.
+3. Creates the `eventscreen` system user with access to the display.
+4. Installs `/etc/eventscreen/config.toml`. apt treats it as a config file,
+   so upgrades never overwrite your changes.
+5. Turns off Wi-Fi power saving, which otherwise causes dropouts on the Pi's
+   Wi-Fi chip.
+6. Enables the hardware watchdog, so the Pi reboots itself if it ever locks up
+   (takes effect after a reboot).
+7. Advertises the screen over mDNS. The service writes
+   `/etc/avahi/services/eventscreen.service` from the config each time it
+   starts, so the advertised port and id always match.
+
+**`eventscreen-setup`** does what changes per Pi, or touches the Pi's boot
+settings, which a package shouldn't do on its own:
+
+1. Sets the hostname if asked.
+2. Fixes the HDMI output at 1920x1080 (`video=HDMI-A-1:1920x1080@60` in
    `cmdline.txt`), stops the console blanking (`consoleblank=0`) and takes the
    login prompt off the HDMI console (`getty@tty1` disabled; SSH still works).
-8. Turns off Wi-Fi power saving, which otherwise causes dropouts on the Pi's
-   Wi-Fi chip.
-9. Enables the hardware watchdog, so the Pi reboots itself if it ever locks up.
-10. Installs, enables and starts the `eventscreen` systemd service.
+3. Writes your options into `/etc/eventscreen/config.toml` and restarts the
+   viewer. It tells you when a reboot is needed.
 
 ## Running unattended
 
@@ -113,36 +146,46 @@ sudo nmcli connection add type wifi con-name venue ifname wlan0 \
 
 The Pi keeps both networks and joins whichever it can see. If it's already at
 the venue and can't connect, re-write the SD card with the new Wi-Fi details
-(step 1) and run the installer again.
+(step 1) and install again.
 
 ## Updating
 
+Download the new `.deb` from the releases page and install it over the top:
+
 ```bash
-cd ~/EventScreenDisplay
-git pull
-sudo ./deploy/install.sh
+sudo apt install ./eventscreen_0.3.0_all.deb
 ```
 
-Your config and the current playlist are kept.
+Your config and the current playlist are kept, and the service restarts on
+the new version. There's no need to run `eventscreen-setup` again. From a git
+checkout, `git pull && sudo ./deploy/install.sh` does the same.
+
+**Upgrading from 0.1.0** (installed by the old script into `/opt`): run
+`git pull && sudo ./deploy/install.sh` once. It removes the old files and
+installs the package, keeping your config and playlist.
 
 ## Files and locations
 
 | Path | What |
 | --- | --- |
-| `/opt/eventscreen/` | The agent code |
+| `/usr/lib/eventscreen/` | The agent code |
+| `/usr/sbin/eventscreen-setup` | Per-Pi setup command |
 | `/etc/eventscreen/config.toml` | Configuration (see comments inside) |
 | `/var/lib/eventscreen/playlist.json` | The saved playlist |
-| `/etc/systemd/system/eventscreen.service` | The service |
-| `/etc/avahi/services/eventscreen.service` | mDNS advertisement |
+| `/usr/lib/systemd/system/eventscreen.service` | The service |
+| `/etc/avahi/services/eventscreen.service` | mDNS advertisement (generated from the config) |
+| `/etc/NetworkManager/conf.d/eventscreen-wifi-powersave.conf` | Wi-Fi power saving off |
+| `/usr/lib/systemd/system.conf.d/eventscreen-watchdog.conf` | Hardware watchdog |
+| `/usr/share/doc/eventscreen/` | These docs |
 
 ## Display tips
 
-- **Resolution.** The installer fixes the output at 1920x1080, which is what
+- **Resolution.** `eventscreen-setup` fixes the output at 1920x1080, which is what
   the RCTC screens are designed for and stops a 4K TV overloading a Pi Zero.
-  To change it, re-run the installer with `--resolution 1280x720@60` (or
+  To change it, run `sudo eventscreen-setup --resolution 1280x720@60` (or
   `auto`) and reboot.
-- **Rotation (portrait screens).** Re-run the installer with
-  `--resolution 1920x1080@60,rotate=90` and reboot.
+- **Rotation (portrait screens).** Run
+  `sudo eventscreen-setup --resolution 1920x1080@60,rotate=90` and reboot.
 - **Text too small or large.** Add Cog's scale option in the config, for
   example `browser_args = ["--scale=1.5"]`, then restart the service.
 - **Overscan (black border or cropped edges on old TVs).** Turn off overscan
@@ -154,24 +197,30 @@ Your config and the current playlist are kept.
 | --- | --- |
 | Screen stays on the text console | `journalctl -u eventscreen -e` for errors; `systemctl status eventscreen` |
 | `screen-01.local` doesn't resolve | Use the IP (`hostname -I` on the Pi). Some Windows PCs and guest Wi-Fi block mDNS. `systemctl status avahi-daemon` |
-| A page is blank or looks wrong in Cog | Try it with `--browser chromium` to see if it's a WebKit issue |
+| A page is blank or looks wrong in Cog | Try `sudo eventscreen-setup --browser chromium` to see if it's a WebKit issue |
 | Pi Zero reboots or freezes | Usually power. Check `vcgencmd get_throttled` (anything but `0x0` means under-voltage or throttling) |
-| Screen shows "No signal" | The TV may not accept 1080p at 60 Hz over that cable or adapter. Try `--resolution 1920x1080@50` or `auto` |
+| Screen shows "No signal" | The TV may not accept 1080p at 60 Hz over that cable or adapter. Try `sudo eventscreen-setup --resolution 1920x1080@50` or `auto` |
 | `screen-01.local` vanishes now and then | Check Wi-Fi signal (`nmcli dev wifi` on the Pi). Move the Pi out from behind the TV, which blocks Wi-Fi |
 | Page loads but stops updating | `POST /api/v1/control/reload`, and check the timing server is reachable from the Pi |
 
-Live logs: `journalctl -u eventscreen -f`. For more detail, add `-v` to the
-`ExecStart` line in the service and run `sudo systemctl daemon-reload &&
-sudo systemctl restart eventscreen`.
+Live logs: `journalctl -u eventscreen -f`. For more detail, run
+`sudo systemctl edit eventscreen` and add:
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/bin/dbus-run-session -- /usr/bin/python3 -m eventscreen --config /etc/eventscreen/config.toml -v
+```
+
+then `sudo systemctl restart eventscreen`. Remove it again with
+`sudo systemctl revert eventscreen`.
 
 ## Uninstalling
 
 ```bash
-sudo systemctl disable --now eventscreen
-sudo rm -rf /opt/eventscreen /etc/eventscreen /var/lib/eventscreen \
-  /etc/systemd/system/eventscreen.service /etc/avahi/services/eventscreen.service
-sudo rm -f /etc/NetworkManager/conf.d/eventscreen-wifi-powersave.conf \
-  /etc/systemd/system.conf.d/eventscreen-watchdog.conf
-sudo userdel eventscreen
+sudo apt purge eventscreen
 sudo systemctl enable getty@tty1
 ```
+
+`purge` removes the config and playlist too; `apt remove` keeps them. The
+hostname and display settings in `cmdline.txt` are left as they are.
