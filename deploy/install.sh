@@ -3,6 +3,7 @@
 #
 #   sudo ./deploy/install.sh [--hostname screen-01] [--browser cog|chromium]
 #                            [--name "Pit lane board"] [--port 8080] [--token SECRET]
+#                            [--resolution 1920x1080@60|auto]
 #
 # Safe to re-run: it upgrades the code and keeps your existing config.
 set -euo pipefail
@@ -12,8 +13,9 @@ BROWSER=""
 NAME=""
 PORT=""
 TOKEN=""
+RESOLUTION=""
 
-usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,6 +24,7 @@ while [[ $# -gt 0 ]]; do
     --name)     NAME="$2"; shift 2 ;;
     --port)     PORT="$2"; shift 2 ;;
     --token)    TOKEN="$2"; shift 2 ;;
+    --resolution) RESOLUTION="$2"; shift 2 ;;
     -h|--help)  usage 0 ;;
     *) echo "unknown option: $1" >&2; usage 1 ;;
   esac
@@ -112,14 +115,36 @@ sed -e "s|@PORT@|$PORT|g" -e "s|@ID@|$SCREEN_ID|g" -e "s|@VERSION@|$VERSION|g" \
 systemctl enable avahi-daemon
 systemctl restart avahi-daemon
 
-step "Tuning the console for a kiosk"
+step "Tuning the display for a kiosk"
 # Stop the text console blanking the screen and keep the login prompt off it.
 CMDLINE=/boot/firmware/cmdline.txt
 [[ -f $CMDLINE ]] || CMDLINE=/boot/cmdline.txt
 if [[ -f $CMDLINE ]] && ! grep -q consoleblank= "$CMDLINE"; then
   sed -i '1 s/$/ consoleblank=0/' "$CMDLINE"
 fi
+# Pin the HDMI mode to 1080p by default. TVs often advertise 4K, which a Pi
+# Zero 2 W can't drive smoothly. An existing mode (for example one with
+# rotation added by hand) is kept unless --resolution is given.
+if [[ -f $CMDLINE ]]; then
+  if [[ -n "$RESOLUTION" ]] || ! grep -q 'video=HDMI-A-1:' "$CMDLINE"; then
+    sed -i -E 's/ ?video=HDMI-A-1:[^ ]*//' "$CMDLINE"
+    RESOLUTION=${RESOLUTION:-1920x1080@60}
+    if [[ $RESOLUTION != auto ]]; then
+      sed -i "1 s/\$/ video=HDMI-A-1:$RESOLUTION/" "$CMDLINE"
+    fi
+  fi
+fi
 systemctl disable getty@tty1.service >/dev/null 2>&1 || true
+
+step "Making it run unattended"
+# Wi-Fi power saving on the Pi's Broadcom chip causes dropouts and makes the
+# screen hard to reach; turn it off (Bookworm uses NetworkManager).
+if [[ -d /etc/NetworkManager/conf.d ]]; then
+  printf '[connection]\nwifi.powersave = 2\n' > /etc/NetworkManager/conf.d/eventscreen-wifi-powersave.conf
+fi
+# Let the hardware watchdog reboot the Pi if the kernel ever locks up.
+install -d /etc/systemd/system.conf.d
+printf '[Manager]\nRuntimeWatchdogSec=15\nRebootWatchdogSec=2min\n' > /etc/systemd/system.conf.d/eventscreen-watchdog.conf
 
 step "Installing and starting the service"
 install -m 0644 "$SRC/deploy/eventscreen.service" /etc/systemd/system/eventscreen.service

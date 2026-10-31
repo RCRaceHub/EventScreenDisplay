@@ -20,7 +20,11 @@ the screens on the LAN and tells each one what to show.
 
 ## Goals
 
-- Run well on a **Pi Zero 2 W** (512 MB RAM) as well as a Pi 3.
+- Run well on a **Pi Zero 2 W** (512 MB RAM, the minimum) as well as a Pi 3,
+  connected over **Wi-Fi**.
+- Drive an **HD (1920x1080)** screen, the size the RCTC screens are designed for.
+- **Boot and run without intervention**: no keyboard, mouse or person needed,
+  from power-on onwards.
 - Show **live JavaScript pages** (timing boards that update over
   WebSockets/polling) without them freezing or leaking.
 - Be **controlled over the network** by a manager, with no keyboard or mouse.
@@ -41,6 +45,9 @@ the screens on the LAN and tells each one what to show.
 | Live status for monitoring | `GET /api/v1/status` |
 | Playlist survives reboots | Saved to `/var/lib/eventscreen/playlist.json` |
 | Self-healing browser | The agent restarts the browser if it exits, on the page that should be showing |
+| Recovers from Wi-Fi or server outages | Checks the page's server every 10 s and reloads the page when it comes back |
+| Fixed 1080p output | Installer pins the HDMI mode to 1920x1080 |
+| Survives lock-ups | Hardware watchdog reboots a hung Pi |
 | Idle screen showing the screen's name and address | Shown whenever the playlist is empty |
 | Discovery on the LAN | Avahi advertises `_eventscreen._tcp` and `<hostname>.local` |
 | Optional write protection | Bearer token for every change; reads stay open |
@@ -88,6 +95,31 @@ breaks on any site that refuses to be framed. On a 512 MB Pi that is the
 wrong trade, so the agent loads one page at a time. Each page loads fresh
 when it comes round, which also clears any slow memory leak in a
 long-running board.
+
+### Unattended operation
+
+The screen has to look after itself from power-on, so several layers each
+cover a different failure:
+
+1. **Network outages.** On Wi-Fi the first page often loads before the
+   network is up, and a timing server can restart mid-event. The browser is
+   then stuck on an error page; a single-page playlist would never move on to
+   fix it. A small background thread in the player tries a TCP connection to
+   the page's server every 10 seconds and reloads the page when it goes from
+   unreachable to reachable. It doesn't reload while the server is fine, so a
+   live board's own reconnect logic is left alone. The result is in
+   `status.network`.
+2. **Browser crashes.** The player checks the browser process every 2 seconds
+   and restarts it on the right page.
+3. **Agent crashes.** systemd restarts the service.
+4. **Kernel or hardware hangs.** systemd's hardware watchdog support
+   (`RuntimeWatchdogSec=15`) reboots the Pi.
+5. **Wi-Fi power saving** is turned off, since it causes dropouts and missed
+   mDNS on the Pi's Wi-Fi chip.
+
+The display is pinned to 1920x1080 at the kernel level (`video=` in
+`cmdline.txt`), so it doesn't depend on what the TV advertises. Many TVs
+advertise 4K first, which a Pi Zero 2 W can't render smoothly.
 
 ### Discovery (mDNS)
 

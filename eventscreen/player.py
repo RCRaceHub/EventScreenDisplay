@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import socket
 import threading
 import time
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from .browsers import Browser
 from .playlist import Item, Playlist, Store
@@ -14,6 +16,19 @@ log = logging.getLogger(__name__)
 
 # How often the loop wakes up to check the browser is still alive.
 HEALTH_INTERVAL = 2.0
+# How often to check the page's server can be reached.
+PROBE_INTERVAL = 10.0
+
+
+def reachable(url: str, timeout: float = 3.0) -> bool:
+    """True if a TCP connection to the URL's host and port succeeds."""
+    parsed = urlparse(url)
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((parsed.hostname, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 @dataclass
@@ -23,8 +38,9 @@ class Override:
 
 
 class Player:
-    def __init__(self, browser: Browser, store: Store, idle_url: str):
+    def __init__(self, browser: Browser, store: Store, idle_url: str, probe=reachable):
         self.browser = browser
+        self.probe = probe
         self.store = store
         self.idle_url = idle_url
         self.playlist = store.load()
@@ -39,16 +55,21 @@ class Player:
         self._stop = False
         self._cond = threading.Condition()
         self._thread = threading.Thread(target=self._run, name="player", daemon=True)
+        self._prober = threading.Thread(target=self._watch_network, name="prober", daemon=True)
+        # Last reachability result for the page on screen: (url, ok, checked_at).
+        self._probe: tuple[str, bool, float] | None = None
 
     # --- lifecycle ------------------------------------------------------
     def start(self) -> None:
         self._thread.start()
+        self._prober.start()
 
     def stop(self) -> None:
         with self._cond:
             self._stop = True
             self._cond.notify_all()
         self._thread.join(timeout=15)
+        self._prober.join(timeout=5)
         self.browser.stop()
 
     # --- commands (called from API threads) -----------------------------
@@ -119,6 +140,7 @@ class Player:
             else:
                 state = "playing"
             showing = self._showing
+            probe = self._probe if showing and self._probe and self._probe[0] == showing.url else None
             return {
                 "state": state,
                 "paused": self.paused,
@@ -133,6 +155,10 @@ class Player:
                 "override": None if self.override is None else {
                     "url": self.override.item.url,
                     "until": self.override.until,
+                },
+                "network": {
+                    "page_reachable": None if probe is None else probe[1],
+                    "checked_at": None if probe is None else probe[2],
                 },
                 "playlist": {
                     "revision": self.playlist.revision,
@@ -214,3 +240,30 @@ class Player:
                 if self.ends_at is not None:
                     timeout = max(0.0, min(timeout, self.ends_at - time.time()))
                 self._cond.wait(timeout)
+
+    def _watch_network(self) -> None:
+        """Reload the page when its server comes back after being unreachable.
+
+        At boot the browser often loads the first page before Wi-Fi is up, and
+        a timing server can restart mid-event. Either way the browser is left
+        on an error page; a single-page playlist would never recover on its
+        own, so watch for the server to come back and reload.
+        """
+        while True:
+            with self._cond:
+                if self._stop:
+                    return
+                url = self.browser.current_url
+            if url and url != self.idle_url:
+                ok = self.probe(url)
+                previous = self._probe
+                self._probe = (url, ok, time.time())
+                if ok and previous and previous[0] == url and not previous[1]:
+                    log.info("%s reachable again; reloading", url)
+                    self.reload()
+                elif not ok and (not previous or previous[0] != url or previous[1]):
+                    log.warning("%s is not reachable", url)
+            with self._cond:
+                if self._stop:
+                    return
+                self._cond.wait(PROBE_INTERVAL)

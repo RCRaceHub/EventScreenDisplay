@@ -4,13 +4,17 @@ A small, lightweight web page viewer for Raspberry Pi screens at events. It
 cycles through a playlist of web pages (typically live RCTC timing boards)
 on a TV, and is controlled over the network through a simple HTTP API.
 
-- Runs on a **Pi Zero 2 W** or **Pi 3** with Raspberry Pi OS Lite, no desktop.
+- Runs on a **Pi Zero 2 W** (minimum) or **Pi 3** over Wi-Fi, with Raspberry
+  Pi OS Lite and no desktop, driving an HD 1920x1080 screen.
+- **Fully unattended**: boots straight to its playlist with no keyboard or
+  mouse, and reloads pages by itself after Wi-Fi or server outages.
 - Uses **Cog (WPE WebKit)** straight on the display, with Chromium as a fallback.
 - **Playlist API**: URLs with a dwell time each, next/previous/pause, temporary
   pages, status.
 - **Found automatically** on the LAN via mDNS (`screen-01.local`,
   `_eventscreen._tcp`), ready for a central manager.
-- Recovers on its own from reboots, network drops and browser crashes.
+- Recovers on its own from power cuts, network drops, browser crashes and
+  lock-ups (hardware watchdog).
 
 ## Quick start
 

@@ -20,17 +20,27 @@ from eventscreen.player import Player
 from eventscreen.playlist import Store
 
 
+class CountingBrowser(DummyBrowser):
+    reloads = 0
+
+    def _reload(self):
+        self.reloads += 1
+
+
 class AgentTest(unittest.TestCase):
     token = ""
 
     def setUp(self):
         player_mod.HEALTH_INTERVAL = 0.05
+        player_mod.PROBE_INTERVAL = 0.05
+        self.server_up = True
         self.tmp = tempfile.TemporaryDirectory()
         self.cfg = Config(screen_id="screen-test", port=0, listen="127.0.0.1",
                           state_dir=Path(self.tmp.name), browser="dummy",
                           min_duration=1, default_duration=1, api_token=self.token)
-        self.browser = DummyBrowser()
-        self.player = Player(self.browser, Store(self.cfg.playlist_path), idle_url="http://127.0.0.1/idle")
+        self.browser = CountingBrowser()
+        self.player = Player(self.browser, Store(self.cfg.playlist_path), idle_url="http://127.0.0.1/idle",
+                             probe=lambda url: self.server_up)
         self.server = make_server(Agent(self.cfg, self.player))
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -135,6 +145,17 @@ class TestApi(AgentTest):
         self.wait_for(lambda: self.browser.alive())
         self.browser.proc.kill()
         self.wait_for(lambda: self.browser.restarts == 1 and self.browser.alive())
+
+    def test_reloads_when_server_comes_back(self):
+        # Boot before Wi-Fi is up: the page's server can't be reached yet.
+        self.server_up = False
+        self.call("PUT", "/api/v1/playlist", {"items": ["http://a.example/"]})
+        self.wait_for(lambda: self.call("GET", "/api/v1/status")[1]["network"]["page_reachable"] is False)
+        self.assertEqual(self.browser.reloads, 0)
+        self.server_up = True
+        self.wait_for(lambda: self.browser.reloads == 1)
+        _, body, _ = self.call("GET", "/api/v1/status")
+        self.assertTrue(body["network"]["page_reachable"])
 
     def test_unknown_route(self):
         status, _, _ = self.call("GET", "/api/v1/nope")

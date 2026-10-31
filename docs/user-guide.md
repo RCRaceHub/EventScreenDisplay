@@ -8,6 +8,16 @@ Linux and Windows 10/11.
 If your screens have a token set, add `-H "Authorization: Bearer YOURTOKEN"`
 to every command that changes something (the ones with `-X`).
 
+## How the screens behave
+
+- Screens show pages at **1920x1080**, so RCTC screens designed for HD fit
+  exactly.
+- A screen only needs power and HDMI. Switch it on and it comes back to its
+  last playlist by itself; just pull the power to switch it off.
+- If the Wi-Fi or the timing server goes down, the screen shows an error
+  page and then reloads by itself within about 10 seconds of the server
+  being reachable again.
+
 ## Find your screens
 
 Each screen shows its name and address on its idle screen. Screens answer

@@ -81,6 +81,7 @@ each result. Key screens by `id`, not by IP or hostname.
     "ends_at": 1793408730.1
   },
   "override": null,
+  "network": {"page_reachable": true, "checked_at": 1793408725.0},
   "playlist": {"revision": 4, "length": 3, "updated_at": 1793405000.0, "source": "event-42"},
   "browser": {
     "driver": "cog",
@@ -98,6 +99,10 @@ each result. Key screens by `id`, not by IP or hostname.
 - `current.ends_at`: when the page will change, or `null` if it won't on its
   own (paused, a single-item playlist, the idle page, or an open-ended override).
 - `override`: `{"url", "until"}` while a `show` is active.
+- `network.page_reachable`: whether the screen could open a TCP connection to
+  the server of the page on screen at `network.checked_at` (checked every 10
+  seconds). `null` before the first check and on the idle page. When it goes
+  from `false` to `true` the screen reloads the page by itself.
 - `browser.restarts` counts browser crashes recovered since the agent started;
   a climbing number is worth alerting on.
 
