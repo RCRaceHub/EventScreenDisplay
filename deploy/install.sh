@@ -5,7 +5,7 @@
 #
 #   sudo ./deploy/install.sh [--hostname screen-01] [--browser cog|chromium]
 #                            [--name "Pit lane board"] [--port 8080] [--token SECRET]
-#                            [--resolution 1920x1080@60|auto]
+#                            [--resolution 1920x1080@60D|auto]
 #
 # Safe to re-run: it upgrades the package and keeps your existing config. If
 # you have a released .deb, "sudo apt install ./eventscreen_*.deb" followed by

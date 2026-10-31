@@ -19,6 +19,12 @@ import urllib.request
 
 log = logging.getLogger(__name__)
 
+# A browser that dies within this many seconds of starting counts as a
+# failed start, and restarts back off up to MAX_BACKOFF seconds so a
+# browser that can't start (no display, say) doesn't spin and flood the log.
+QUICK_EXIT = 10.0
+MAX_BACKOFF = 60.0
+
 
 class Browser:
     name = "base"
@@ -29,6 +35,9 @@ class Browser:
         self.current_url: str | None = None
         self.restarts = 0
         self.last_error = ""
+        self._started_at = 0.0
+        self._backoff = 0.0
+        self._retry_at = 0.0
 
     # --- subclass hooks -------------------------------------------------
     def command(self, url: str) -> list[str]:
@@ -73,10 +82,20 @@ class Browser:
             self._start(self.current_url)
 
     def ensure_running(self) -> None:
-        if self.current_url is not None and not self.alive():
+        if self.current_url is None or self.alive():
+            return
+        now = time.monotonic()
+        if self._retry_at == 0.0:
             code = self.proc.returncode if self.proc else None
             self.last_error = f"browser exited with code {code}"
-            log.warning("%s; restarting", self.last_error)
+            if now - self._started_at < QUICK_EXIT:
+                self._backoff = min(max(self._backoff * 2, 2.0), MAX_BACKOFF)
+            else:
+                self._backoff = 0.0
+            self._retry_at = now + self._backoff
+            log.warning("%s; restarting in %.0fs", self.last_error, self._backoff)
+        if now >= self._retry_at:
+            self._retry_at = 0.0
             self._start(self.current_url)
 
     def stop(self) -> None:
@@ -108,6 +127,7 @@ class Browser:
         cmd = self.command(url)
         log.info("starting browser: %s", " ".join(cmd))
         self.proc = subprocess.Popen(cmd, start_new_session=True)
+        self._started_at = time.monotonic()
         self.current_url = url
         self._after_start()
 
