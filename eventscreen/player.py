@@ -35,12 +35,21 @@ def reachable(url: str, timeout: float = 3.0) -> bool:
 class Override:
     item: Item
     until: float | None  # None = until cleared
+    # Shown even over a full-screen event message (the Wi-Fi setup screen).
+    above_messages: bool = False
 
 
 class Player:
     def __init__(self, browser: Browser, store: Store, idle_url: str, probe=reachable,
-                 preload_ahead: float = 10.0):
+                 preload_ahead: float = 10.0, messages=None, message_url: str = ""):
         self.browser = browser
+        # Full-screen event messages (messages.Messages) win over the
+        # playlist and over `show`; they're drawn by the page at message_url.
+        self.messages = messages
+        self.message_url = message_url
+        self._showing_kind = ""
+        if messages is not None:
+            messages.on_change(self._kick_locked)
         # Seconds before a switch to start loading the next page out of sight,
         # if the browser supports it (see stage.StageBrowser).
         self.preload_ahead = preload_ahead
@@ -116,11 +125,11 @@ class Player:
                 # Give the current page a fresh dwell rather than jumping straight on.
                 self._kick()
 
-    def show(self, item: Item, duration: int | None) -> None:
+    def show(self, item: Item, duration: int | None, above_messages: bool = False) -> None:
         """Temporarily show a URL, then return to the playlist."""
         with self._cond:
             until = time.time() + duration if duration else None
-            self.override = Override(item, until)
+            self.override = Override(item, until, above_messages)
             self._kick()
 
     def clear_override(self) -> None:
@@ -136,7 +145,9 @@ class Player:
 
     def status(self) -> dict:
         with self._cond:
-            if self.override:
+            if self._showing_kind == "message":
+                state = "message"
+            elif self.override:
                 state = "override"
             elif not self.playlist.items:
                 state = "idle"
@@ -174,6 +185,10 @@ class Player:
             }
 
     # --- internals ------------------------------------------------------
+    def _kick_locked(self) -> None:
+        with self._cond:
+            self._kick()
+
     def _kick(self) -> None:
         self._dirty = True
         self._cond.notify_all()
@@ -187,8 +202,19 @@ class Player:
     def _target(self) -> tuple[Item, float | None]:
         """What should be on screen now, and when it should change (or None)."""
         now = time.time()
-        if self.override:
+        if self.override and self.override.until is not None and self.override.until <= now:
+            self.override = None  # ran out while a message was covering it
+        if self.override and self.override.above_messages:
+            self._showing_kind = "override"
             return self.override.item, self.override.until
+        message = self.messages.message if self.messages is not None else None
+        if message:
+            self._showing_kind = "message"
+            return Item(url=self.message_url, duration=0, label="message"), message["until"]
+        if self.override:
+            self._showing_kind = "override"
+            return self.override.item, self.override.until
+        self._showing_kind = "playlist"
         items = self.playlist.items
         if not items:
             return Item(url=self.idle_url, duration=0, label="idle"), None
@@ -201,6 +227,8 @@ class Player:
     def _upcoming(self) -> Item | None:
         """What will be shown when the current page's time is up."""
         items = self.playlist.items
+        if self._showing_kind == "message":
+            return None
         if self.override:
             if self.override.until is None:
                 return None
@@ -219,7 +247,9 @@ class Player:
                     return
                 now = time.time()
                 if self.ends_at is not None and now >= self.ends_at:
-                    if self.override:
+                    if self._showing_kind == "message":
+                        pass  # the message has expired; show what's underneath
+                    elif self._showing_kind == "override":
                         self.override = None
                     else:
                         self.index = (self.index + 1) % max(len(self.playlist.items), 1)

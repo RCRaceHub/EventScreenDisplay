@@ -13,6 +13,7 @@ from . import __version__, browsers, config
 from .api import Agent, make_server
 from .player import Player
 from .playlist import Store
+from .messages import Messages
 from .stage import Stage, StageBrowser
 
 
@@ -39,13 +40,14 @@ def main(argv: list[str] | None = None) -> int:
 
     browser = browsers.create(cfg.browser, cfg.browser_args)
     base = f"http://127.0.0.1:{cfg.port}"
+    messages = Messages(cfg.state_dir / "messages.json")
     stage = None
     if cfg.preload:
-        stage = Stage()
+        stage = Stage(messages)
         browser = StageBrowser(browser, stage, f"{base}/stage")
     player = Player(browser, Store(cfg.playlist_path), idle_url=f"{base}/idle",
-                    preload_ahead=cfg.preload_ahead)
-    agent = Agent(cfg, player, stage=stage)
+                    preload_ahead=cfg.preload_ahead, messages=messages, message_url=f"{base}/message")
+    agent = Agent(cfg, player, stage=stage, messages=messages)
     server = make_server(agent)
 
     stopping = threading.Event()
