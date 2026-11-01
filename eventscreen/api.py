@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import hmac
 import html
+import http.client
 import json
 import logging
 import socket
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from pathlib import Path
+from urllib.parse import quote, urlparse
 
 from . import API_VERSION, __version__
+from .wifi import CONTROL_SOCKET
 from .config import Config
 from .player import Player
 from .playlist import Item, PlaylistError, parse_duration, parse_items, replaced, validate_url
@@ -30,12 +33,45 @@ class ApiError(Exception):
         self.message = message
 
 
+class WifiClient:
+    """Forwards /api/v1/wifi calls to the root eventscreen-wifi service."""
+
+    def __init__(self, path: Path = CONTROL_SOCKET, timeout: float = 60):
+        self.path = Path(path)
+        self.timeout = timeout
+
+    def call(self, method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
+        conn = _UnixConnection(str(self.path), self.timeout)
+        try:
+            data = None if body is None else json.dumps(body).encode()
+            conn.request(method, path, body=data, headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+            return resp.status, json.loads(resp.read() or b"{}")
+        except (FileNotFoundError, ConnectionRefusedError):
+            raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE,
+                           "Wi-Fi service isn't running (systemctl status eventscreen-wifi)")
+        finally:
+            conn.close()
+
+
+class _UnixConnection(http.client.HTTPConnection):
+    def __init__(self, path: str, timeout: float):
+        super().__init__("localhost", timeout=timeout)
+        self.unix_path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.unix_path)
+
+
 class Agent:
     """Glue between the HTTP handler and the player."""
 
-    def __init__(self, cfg: Config, player: Player):
+    def __init__(self, cfg: Config, player: Player, wifi: WifiClient | None = None):
         self.cfg = cfg
         self.player = player
+        self.wifi = wifi or WifiClient()
         self.booted_at = time.time()
 
     def info(self) -> dict:
@@ -47,6 +83,8 @@ class Agent:
             "api_version": API_VERSION,
             "browser": self.cfg.browser,
             "auth_required": bool(self.cfg.api_token),
+            # Lets a manager tell which endpoint groups a screen has.
+            "features": ["playlist", "control", "wifi"],
             "limits": {
                 "default_duration": self.cfg.default_duration,
                 "min_duration": self.cfg.min_duration,
@@ -103,7 +141,15 @@ class Handler(BaseHTTPRequestHandler):
             ("POST", f"{PREFIX}/control/goto"): self.ctl(self._goto),
             ("POST", f"{PREFIX}/control/show"): self.ctl(self._show),
             ("DELETE", f"{PREFIX}/control/show"): self.ctl(lambda b: self.agent.player.clear_override()),
+            ("GET", f"{PREFIX}/wifi"): lambda: self._wifi("GET", "/wifi"),
+            ("GET", f"{PREFIX}/wifi/scan"): lambda: self._wifi("GET", "/wifi/scan"),
+            ("POST", f"{PREFIX}/wifi/networks"): lambda: self._wifi("POST", "/wifi/networks", self._body()),
         }
+        networks = f"{PREFIX}/wifi/networks/"
+        if method == "DELETE" and path.startswith(networks) and len(path) > len(networks):
+            # The SSID stays percent-encoded on its way to the Wi-Fi service.
+            raw = urlparse(self.path).path[len(networks):].rstrip("/")
+            routes[(method, path)] = lambda: self._wifi("DELETE", "/wifi/networks/" + quote(raw, safe="%"))
         try:
             handler = routes.get((method, path))
             if handler is None:
@@ -112,6 +158,11 @@ class Handler(BaseHTTPRequestHandler):
                 raise ApiError(HTTPStatus.NOT_FOUND, "not found")
             if method != "GET":
                 self._check_auth()
+                if path.startswith(f"{PREFIX}/wifi") and not self.agent.cfg.api_token:
+                    # Changing the Wi-Fi can take a screen off the network for
+                    # good, so it's never open to anyone on the LAN.
+                    raise ApiError(HTTPStatus.FORBIDDEN, "set api_token on the screen to change "
+                                   "Wi-Fi over the API (sudo eventscreen-setup --token ...)")
             handler()
         except ApiError as e:
             self._json({"error": e.message}, e.status)
@@ -182,6 +233,10 @@ class Handler(BaseHTTPRequestHandler):
         except PlaylistError as e:
             raise ApiError(HTTPStatus.BAD_REQUEST, str(e))
         self.agent.player.show(Item(url=url, duration=duration or 0, label=str(body.get("label", ""))), duration)
+
+    def _wifi(self, method: str, path: str, body: dict | None = None):
+        status, data = self.agent.wifi.call(method, path, body)
+        self._json(data, HTTPStatus(status))
 
     def idle_page(self):
         info = self.agent.info()

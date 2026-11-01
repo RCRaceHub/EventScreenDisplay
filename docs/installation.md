@@ -154,8 +154,13 @@ While the hotspot is up, the Pi drops it every 5 minutes (unless someone is
 using the setup page) to retry the networks it knows, so a screen that was
 switched on before the venue Wi-Fi was ready finds it by itself.
 
-**Beforehand, over SSH.** While the screen can still reach your current
-network, add the new one:
+**Beforehand, over the API.** While the screen can still reach your
+current network, save the venue's network with
+`POST /api/v1/wifi/networks` (needs `api_token` set). The screen joins it
+when it gets there. See the [user guide](user-guide.md#adding-the-venues-wi-fi-before-you-go)
+and the [API reference](API.md#wi-fi).
+
+**Beforehand, over SSH.** Or do the same by hand:
 
 ```bash
 ssh <you>@screen-01.local

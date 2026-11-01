@@ -47,6 +47,7 @@ the screens on the LAN and tells each one what to show.
 | Self-healing browser | The agent restarts the browser if it exits, on the page that should be showing |
 | Recovers from Wi-Fi or server outages | Checks the page's server every 10 s and reloads the page when it comes back |
 | New venue Wi-Fi without a keyboard | Setup hotspot with a captive-portal setup page, instructions on the TV |
+| Manage Wi-Fi remotely | `GET/POST/DELETE /api/v1/wifi...` (token required) |
 | Fixed 1080p output | Installer pins the HDMI mode to 1920x1080 |
 | Survives lock-ups | Hardware watchdog reboots a hung Pi |
 | Idle screen showing the screen's name and address | Shown whenever the playlist is empty |
@@ -161,6 +162,14 @@ NetworkManager connections and listens on port 80.
   so every `wifi_retry_interval` seconds (300) the hotspot drops for 45 seconds
   to let NetworkManager retry the known networks. It doesn't do this while
   the setup page has been used in the last 2 minutes.
+- It also serves the agent's `/api/v1/wifi` endpoints. The agent runs as an
+  unprivileged user and can't change NetworkManager, so it forwards those
+  requests over a Unix socket (`/run/eventscreen-wifi/control.sock`,
+  `0660`, group `eventscreen`) to this root service. That keeps root out of
+  the network-facing agent and needs no polkit rules. Wi-Fi writes are
+  refused unless `api_token` is set, a connected network can't be deleted,
+  and `connect: true` answers before it switches, since the caller may lose
+  the screen.
 - The hotspot password is random per screen (kept in
   `/var/lib/eventscreen/hotspot-password`) unless set in the config. It's
   shown on the TV, which is fine: the hotspot only exists while the screen
