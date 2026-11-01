@@ -83,7 +83,7 @@ leave out stay as they are.
 | `--browser cog\|chromium` | Browser to use. Default `cog` (recommended). `chromium` installs Chromium and the `cage` compositor. |
 | `--port N` | API port. Default 8080. |
 | `--token SECRET` | Require `Authorization: Bearer SECRET` for any change. |
-| `--resolution MODE` | HDMI mode. Default `1920x1080@60`. `auto` uses whatever the TV prefers. Add rotation like `1920x1080@60,rotate=90`. |
+| `--resolution MODE` | HDMI mode. Default `1920x1080@60D`; the `D` forces HDMI on even if the TV doesn't report itself at boot. `auto` uses whatever the TV prefers. Add rotation like `1920x1080@60D,rotate=90`. |
 
 ### What gets installed
 
@@ -108,7 +108,8 @@ leave out stay as they are.
 settings, which a package shouldn't do on its own:
 
 1. Sets the hostname if asked.
-2. Fixes the HDMI output at 1920x1080 (`video=HDMI-A-1:1920x1080@60` in
+2. Fixes the HDMI output at 1920x1080 and forces it on
+   (`video=HDMI-A-1:1920x1080@60D` in
    `cmdline.txt`), stops the console blanking (`consoleblank=0`) and takes the
    login prompt off the HDMI console (`getty@tty1` disabled; SSH still works).
 3. Writes your options into `/etc/eventscreen/config.toml` and restarts the
@@ -125,7 +126,7 @@ things go wrong:
 | Power cut | Same as power on. The playlist is saved to disk. |
 | Wi-Fi not up yet at boot, or drops | The browser may show an error page. The agent checks the page's server every 10 seconds and reloads the page as soon as it can be reached. |
 | Timing server restarts | Same as above: reloads the page when the server answers again. |
-| Browser crashes | Restarted within a few seconds on the page that should be showing. |
+| Browser crashes | Restarted within a few seconds on the page that should be showing. If it keeps failing to start, retries slow down to once a minute. |
 | Agent crashes | systemd restarts it within 3 seconds. |
 | Pi locks up completely | The hardware watchdog reboots it within about 15 seconds. |
 
@@ -185,7 +186,7 @@ installs the package, keeping your config and playlist.
   To change it, run `sudo eventscreen-setup --resolution 1280x720@60` (or
   `auto`) and reboot.
 - **Rotation (portrait screens).** Run
-  `sudo eventscreen-setup --resolution 1920x1080@60,rotate=90` and reboot.
+  `sudo eventscreen-setup --resolution 1920x1080@60D,rotate=90` and reboot.
 - **Text too small or large.** Add Cog's scale option in the config, for
   example `browser_args = ["--scale=1.5"]`, then restart the service.
 - **Overscan (black border or cropped edges on old TVs).** Turn off overscan
@@ -196,6 +197,7 @@ installs the package, keeping your config and playlist.
 | Symptom | Check |
 | --- | --- |
 | Screen stays on the text console | `journalctl -u eventscreen -e` for errors; `systemctl status eventscreen` |
+| Log says `Platform setup failed: Failed to initialize DRM` | The Pi sees nothing on HDMI: `cat /sys/class/drm/card*-HDMI-A-1/status` says `disconnected`. Force HDMI on with `sudo eventscreen-setup --resolution 1920x1080@60D` and reboot (the default since 0.2.1). If it's still disconnected, check the cable or adapter and the TV input |
 | `screen-01.local` doesn't resolve | Use the IP (`hostname -I` on the Pi). Some Windows PCs and guest Wi-Fi block mDNS. `systemctl status avahi-daemon` |
 | A page is blank or looks wrong in Cog | Try `sudo eventscreen-setup --browser chromium` to see if it's a WebKit issue |
 | Pi Zero reboots or freezes | Usually power. Check `vcgencmd get_throttled` (anything but `0x0` means under-voltage or throttling) |

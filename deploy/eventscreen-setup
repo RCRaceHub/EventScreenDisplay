@@ -4,7 +4,7 @@
 #
 #   sudo eventscreen-setup [--hostname screen-01] [--name "Pit lane board"]
 #                          [--browser cog|chromium] [--port 8080] [--token SECRET]
-#                          [--resolution 1920x1080@60|auto]
+#                          [--resolution 1920x1080@60D|auto]
 #
 # It sets the hostname, fixes the HDMI mode (1080p by default), keeps the
 # console from blanking or showing a login prompt, writes your options into
@@ -94,11 +94,16 @@ if [[ -f $CMDLINE ]]; then
     sed -i '1 s/$/ consoleblank=0/' "$CMDLINE"
   fi
   # Pin the HDMI mode to 1080p by default. TVs often advertise 4K, which a
-  # Pi Zero 2 W can't drive smoothly. An existing mode (for example one with
-  # rotation added by hand) is kept unless --resolution is given.
+  # Pi Zero 2 W can't drive smoothly. The trailing D forces the output on
+  # even when the TV doesn't report itself as connected at boot (TV off, on
+  # another input, or an adapter that drops the hotplug signal); without it
+  # the browser finds no screen and can't start. An existing mode (for
+  # example one with rotation added by hand) is kept unless --resolution is
+  # given, apart from 0.2.0's default, which gets the D added.
+  sed -i -E 's/(video=HDMI-A-1:1920x1080@60)( |$)/\1D\2/' "$CMDLINE"
   if [[ -n "$RESOLUTION" ]] || ! grep -q 'video=HDMI-A-1:' "$CMDLINE"; then
     sed -i -E 's/ ?video=HDMI-A-1:[^ ]*//' "$CMDLINE"
-    RESOLUTION=${RESOLUTION:-1920x1080@60}
+    RESOLUTION=${RESOLUTION:-1920x1080@60D}
     if [[ $RESOLUTION != auto ]]; then
       sed -i "1 s/\$/ video=HDMI-A-1:$RESOLUTION/" "$CMDLINE"
     fi

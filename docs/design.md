@@ -110,7 +110,9 @@ cover a different failure:
    live board's own reconnect logic is left alone. The result is in
    `status.network`.
 2. **Browser crashes.** The player checks the browser process every 2 seconds
-   and restarts it on the right page.
+   and restarts it on the right page. If the browser keeps dying straight
+   after starting (for example, no display), restarts back off from 2 up to
+   60 seconds so it doesn't spin and flood the log.
 3. **Agent crashes.** systemd restarts the service.
 4. **Kernel or hardware hangs.** systemd's hardware watchdog support
    (`RuntimeWatchdogSec=15`) reboots the Pi.

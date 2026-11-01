@@ -55,7 +55,7 @@ each result. Key screens by `id`, not by IP or hostname.
   "id": "screen-01",
   "name": "Pit lane board",
   "hostname": "screen-01",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "api_version": "1",
   "browser": "cog",
   "auth_required": false,
