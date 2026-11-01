@@ -141,6 +141,38 @@ Then:
    the setup message come back within about a minute, with the reason on the
    TV. Join it again and retry.
 
+### Adding the venue's Wi-Fi before you go
+
+This is easier than using the hotspot. While the screen is still on your
+current network, save the venue's network, and the screen joins it by itself
+when it arrives. The screen needs a token for this (see below):
+
+```bash
+curl -X POST http://screen-01.local:8080/api/v1/wifi/networks \
+  -H "Authorization: Bearer YOURTOKEN" -H "Content-Type: application/json" \
+  -d '{"ssid": "VenueWiFi", "password": "venue-password"}'
+```
+
+To see what a screen is connected to and which networks it has saved:
+
+```bash
+curl http://screen-01.local:8080/api/v1/wifi
+```
+
+Add `"connect": true` to switch over straight away, for example when the
+venue network is already in range. The screen drops off for up to 45
+seconds while it switches, and if the new network isn't the one your laptop
+is on you won't be able to reach the screen afterwards. To forget a network:
+
+```bash
+curl -X DELETE http://screen-01.local:8080/api/v1/wifi/networks/OldVenue \
+  -H "Authorization: Bearer YOURTOKEN"
+```
+
+Changing Wi-Fi over the network only works on screens set up with a token
+(`sudo eventscreen-setup --token ...`), so nobody else on a shared network
+can take your screens off it. Without a token, use the hotspot.
+
 Screens remember every network they've joined, so a screen moving between
 your usual venues finds the right one by itself. If the venue Wi-Fi just
 wasn't ready when the screen was switched on, you don't need to do anything:

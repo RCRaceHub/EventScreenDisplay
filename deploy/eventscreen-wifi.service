@@ -1,16 +1,20 @@
 [Unit]
-Description=EventScreenDisplay Wi-Fi fallback hotspot
+Description=EventScreenDisplay Wi-Fi (setup hotspot and Wi-Fi API)
 Documentation=file:///usr/share/doc/eventscreen/user-guide.md
 After=NetworkManager.service eventscreen.service
 Wants=NetworkManager.service
 
 [Service]
 Type=simple
-# Runs as root because it changes NetworkManager connections and serves the
-# setup page on port 80 of the hotspot address.
+# Runs as root because it changes NetworkManager connections, serves the
+# setup page on port 80 of the hotspot address, and makes the Wi-Fi changes
+# the agent's /api/v1/wifi asks for.
 WorkingDirectory=/usr/lib/eventscreen
 Environment=PYTHONPATH=/usr/lib/eventscreen
 Environment=PYTHONUNBUFFERED=1
+# Holds the control socket the agent uses for /api/v1/wifi (0660, eventscreen group).
+RuntimeDirectory=eventscreen-wifi
+RuntimeDirectoryMode=0755
 ExecStart=/usr/bin/python3 -m eventscreen.wifi --config /etc/eventscreen/config.toml
 Restart=on-failure
 RestartSec=10

@@ -55,7 +55,7 @@ class FakeNM:
     def stop_hotspot(self):
         self.hotspot = False
 
-    def save_network(self, ssid, password, hidden=False):
+    def save_network(self, ssid, password, hidden=False, priority=0):
         self.saved.append((ssid, password, hidden))
         return f"wifi-{ssid}"
 
@@ -114,6 +114,56 @@ class TestNetworkManager(unittest.TestCase):
         self.assertIn("wifi-Venue", add)
         self.assertIn("password1", add)
         self.assertIn("802-11-wireless.hidden", add)
+
+
+class TestNetworkManagerSaved(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.deleted = []
+
+        def run(args, timeout):
+            self.calls.append(args)
+            if args[:4] == ["-t", "-f", "NAME,TYPE,AUTOCONNECT-PRIORITY,ACTIVE", "connection"]:
+                return ("wifi-Home:802-11-wireless:0:yes\n"
+                        "Venue Net:802-11-wireless:10:no\n"
+                        "eventscreen-hotspot:802-11-wireless:0:no\n"
+                        "Wired connection 1:802-3-ethernet:-999:no\n")
+            if "802-11-wireless.ssid" in args:
+                return {"wifi-Home": "Home\n", "Venue Net": "Venue\n"}[args[-1]]
+            if args[:2] == ["connection", "delete"]:
+                self.deleted.append(args[2])
+                return ""
+            if args[:3] == ["-t", "-f", "DEVICE,TYPE,STATE,CONNECTION"]:
+                return "wlan0:wifi:connected:wifi-Home\n"
+            if "ACTIVE,SSID,SIGNAL" in args:
+                return "no:Venue:40\nyes:Home:67\n"
+            if "IP4.ADDRESS" in args:
+                return "192.168.1.50/24\n"
+            return ""
+
+        self.nm = wifi.NetworkManager(run)
+
+    def test_saved(self):
+        self.assertEqual(self.nm.saved(), [
+            {"ssid": "Venue", "connection": "Venue Net", "priority": 10, "active": False},
+            {"ssid": "Home", "connection": "wifi-Home", "priority": 0, "active": True},
+        ])
+
+    def test_current(self):
+        self.assertEqual(self.nm.current(), {"connection": "wifi-Home", "ssid": "Home",
+                                             "signal": 67, "ip": "192.168.1.50"})
+
+    def test_forget_deletes_by_ssid(self):
+        self.assertEqual(self.nm.forget("Venue"), 1)
+        self.assertEqual(self.deleted, ["Venue Net"])
+
+    def test_save_replaces_existing(self):
+        # A network saved by hand (or by the Pi Imager) under another name is
+        # replaced rather than duplicated.
+        self.nm.save_network("Venue", "newpass12", priority=5)
+        self.assertIn("Venue Net", self.deleted)
+        add = self.calls[-1]
+        self.assertEqual(add[add.index("connection.autoconnect-priority") + 1], "5")
 
 
 class TestFallback(unittest.TestCase):

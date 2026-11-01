@@ -13,17 +13,23 @@ points every name at the Pi (see deploy/captive-dns.conf), so most phones
 open the setup page by themselves. Every wifi_retry_interval seconds it
 drops the hotspot briefly to retry the known networks, in case the venue
 Wi-Fi was just late coming up.
+
+It also does the Wi-Fi changes behind the agent's /api/v1/wifi endpoints,
+which reach it over a Unix socket (see WifiControl).
 """
 
 from __future__ import annotations
 
 import argparse
+import grp
 import html
 import json
 import logging
+import os
 import secrets
 import signal
 import socket
+import socketserver
 import subprocess
 import threading
 import time
@@ -32,7 +38,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import config
 
@@ -147,18 +153,68 @@ class NetworkManager:
         except Exception:
             pass
 
-    def save_network(self, ssid: str, password: str, hidden: bool = False) -> str:
-        """Store a Wi-Fi network for autoconnect; returns the connection name."""
+    def save_network(self, ssid: str, password: str, hidden: bool = False, priority: int = 0) -> str:
+        """Store a Wi-Fi network for autoconnect; returns the connection name.
+
+        Replaces any saved connection for the same SSID, so saving a network
+        again is how its password is changed.
+        """
         name = f"wifi-{ssid}"
-        self._delete(name)
+        for old in {name, *self.connections_for(ssid)}:
+            self._delete(old)
         args = ["connection", "add", "type", "wifi", "con-name", name, "ifname", IFACE,
-                "ssid", ssid, "connection.autoconnect", "yes"]
+                "ssid", ssid, "connection.autoconnect", "yes",
+                "connection.autoconnect-priority", str(priority)]
         if password:
             args += ["wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", password]
         if hidden:
             args += ["802-11-wireless.hidden", "yes"]
         self.nmcli(*args)
         return name
+
+    def saved(self) -> list[dict]:
+        """Saved Wi-Fi networks (not our hotspot), highest priority first."""
+        out = self.nmcli("-t", "-f", "NAME,TYPE,AUTOCONNECT-PRIORITY,ACTIVE", "connection", "show")
+        nets = []
+        for line in out.splitlines():
+            f = split_terse(line)
+            if len(f) < 4 or f[1] not in ("802-11-wireless", "wifi") or f[0] == HOTSPOT_CON:
+                continue
+            ssid = self.nmcli("-t", "-g", "802-11-wireless.ssid", "connection", "show", f[0]).strip()
+            nets.append({"ssid": ssid or f[0], "connection": f[0],
+                         "priority": int(f[2]) if f[2].lstrip("-").isdigit() else 0,
+                         "active": f[3] == "yes"})
+        return sorted(nets, key=lambda n: (-n["priority"], n["ssid"]))
+
+    def connections_for(self, ssid: str) -> list[str]:
+        return [n["connection"] for n in self.saved() if n["ssid"] == ssid]
+
+    def current(self) -> dict | None:
+        """The Wi-Fi network the Pi is on now, if any (not our hotspot)."""
+        dev = next((d for d in self.devices() if d["device"] == IFACE), None)
+        if not dev or dev["state"] != "connected" or dev["connection"] == HOTSPOT_CON:
+            return None
+        info = {"connection": dev["connection"], "ssid": "", "signal": None, "ip": ""}
+        try:
+            for line in self.nmcli("-t", "-f", "ACTIVE,SSID,SIGNAL", "device", "wifi", "list",
+                                   "--rescan", "no").splitlines():
+                f = split_terse(line)
+                if len(f) >= 3 and f[0] == "yes":
+                    info["ssid"] = f[1]
+                    info["signal"] = int(f[2]) if f[2].isdigit() else None
+                    break
+            addr = self.nmcli("-t", "-g", "IP4.ADDRESS", "device", "show", IFACE).strip()
+            info["ip"] = addr.split("|")[0].split("/")[0]
+        except Exception as e:
+            log.debug("couldn't read Wi-Fi details: %s", e)
+        return info
+
+    def forget(self, ssid: str) -> int:
+        """Delete every saved connection for ssid; returns how many."""
+        names = self.connections_for(ssid)
+        for name in names:
+            self.nmcli("connection", "delete", name)
+        return len(names)
 
     def connect(self, name: str, wait: int = RETRY_WINDOW) -> bool:
         try:
@@ -401,6 +457,209 @@ class SetupServer:
             self.httpd = None
 
 
+# --- control socket for the agent's /api/v1/wifi ---------------------------
+#
+# The agent runs unprivileged, so it can't change NetworkManager itself. It
+# forwards /api/v1/wifi requests to this root service over a Unix socket that
+# only root and the eventscreen group can open.
+
+CONTROL_SOCKET = Path("/run/eventscreen-wifi/control.sock")
+
+
+class ControlError(Exception):
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+class WifiControl:
+    """What the API can ask for: status, scan, add and forget networks."""
+
+    def __init__(self, nm: NetworkManager, fallback: Fallback, clock=time.time):
+        self.nm = nm
+        self.fallback = fallback
+        self.clock = clock
+        self.last_change: dict | None = None
+
+    def status(self) -> dict:
+        fb = self.fallback
+        return {
+            "mode": fb.state,
+            "connected": None if fb.state == "hotspot" else self.nm.current(),
+            "saved": [{k: n[k] for k in ("ssid", "priority", "active")} for n in self.nm.saved()],
+            "hotspot": {
+                "ssid": fb.ssid,
+                "enabled": fb.cfg.wifi_fallback,
+                "after": fb.cfg.wifi_fallback_after,
+            },
+            "connecting": fb.connecting or None,
+            "last_change": self.last_change,
+        }
+
+    def scan(self) -> dict:
+        # In setup mode the radio is busy being a hotspot; use the scan made
+        # just before it started.
+        nets = self.fallback.networks if self.fallback.state == "hotspot" else self.nm.scan()
+        return {"networks": [{"ssid": n.ssid, "signal": n.signal, "secure": n.secure}
+                             for n in nets if n.ssid != self.fallback.ssid]}
+
+    def add(self, body: dict) -> tuple[int, dict]:
+        ssid = body.get("ssid")
+        password = body.get("password") or ""
+        hidden = body.get("hidden", False)
+        priority = body.get("priority", 0)
+        connect = body.get("connect", False)
+        if not isinstance(ssid, str) or not isinstance(password, str):
+            raise ControlError(400, "ssid and password must be strings")
+        if not all(isinstance(v, bool) for v in (hidden, connect)):
+            raise ControlError(400, "hidden and connect must be true or false")
+        if not isinstance(priority, int) or isinstance(priority, bool) or not -999 <= priority <= 999:
+            raise ControlError(400, "priority must be an integer from -999 to 999")
+        error = validate(ssid, password)
+        if error:
+            raise ControlError(400, error)
+        if ssid == self.fallback.ssid:
+            raise ControlError(400, "that's this screen's own setup hotspot")
+        if connect:
+            # Answer before switching: the caller may lose the screen if the
+            # new network is a different LAN.
+            threading.Thread(target=self._switch, args=(ssid, password, hidden, priority),
+                             name="wifi-switch", daemon=True).start()
+            return 202, {"ssid": ssid, "saved": True, "connecting": True}
+        with self.fallback.lock:
+            self.nm.save_network(ssid, password, hidden, priority)
+        return 201, {"ssid": ssid, "saved": True, "connecting": False}
+
+    def forget(self, ssid: str) -> dict:
+        with self.fallback.lock:
+            saved = [n for n in self.nm.saved() if n["ssid"] == ssid]
+            if not saved:
+                raise ControlError(404, f"no saved network {ssid!r}")
+            if any(n["active"] for n in saved):
+                raise ControlError(409, f"the screen is on {ssid} now; connect it to another "
+                                        "network first, or it would drop off the network")
+            self.nm.forget(ssid)
+        return {"ssid": ssid, "forgotten": True}
+
+    def _switch(self, ssid: str, password: str, hidden: bool, priority: int) -> None:
+        fb = self.fallback
+        if fb.state == "hotspot":
+            ok = fb.choose(ssid, password, hidden)
+            message = "" if ok else fb.message
+        else:
+            with fb.lock:
+                fb.connecting = ssid
+                try:
+                    name = self.nm.save_network(ssid, password, hidden, priority)
+                    ok = self.nm.connect(name)
+                    # On failure NetworkManager falls back to the other saved
+                    # networks by itself; the hotspot covers the rest.
+                    message = "" if ok else f"couldn't join {ssid}"
+                except Exception as e:
+                    ok, message = False, f"couldn't save {ssid}: {e}"
+                finally:
+                    fb.connecting = ""
+                if ok:
+                    fb.last_online = fb.clock()
+        self.last_change = {"ssid": ssid, "ok": ok, "message": message, "at": self.clock()}
+        log.info("API Wi-Fi change to %s: %s", ssid, "joined" if ok else message)
+
+
+class ControlHandler(BaseHTTPRequestHandler):
+    control: WifiControl  # set by ControlServer
+
+    def do_GET(self):
+        self._handle(lambda: {"/wifi": self.control.status,
+                              "/wifi/scan": self.control.scan}[urlparse(self.path).path]())
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/wifi/networks":
+            return self._send(404, {"error": "not found"})
+        self._handle(lambda: self.control.add(self._body()))
+
+    def do_DELETE(self):
+        path = urlparse(self.path).path
+        prefix = "/wifi/networks/"
+        if not path.startswith(prefix) or len(path) == len(prefix):
+            return self._send(404, {"error": "not found"})
+        ssid = unquote(path[len(prefix):])
+        self._handle(lambda: self.control.forget(ssid))
+
+    def _handle(self, fn):
+        try:
+            result = fn()
+            status, data = result if isinstance(result, tuple) else (200, result)
+            self._send(status, data)
+        except KeyError:
+            self._send(404, {"error": "not found"})
+        except ControlError as e:
+            self._send(e.status, {"error": e.message})
+        except Exception as e:
+            log.exception("Wi-Fi control request failed")
+            self._send(500, {"error": f"Wi-Fi change failed: {e}"})
+
+    def _body(self) -> dict:
+        length = min(int(self.headers.get("Content-Length") or 0), 64 * 1024)
+        try:
+            data = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            raise ControlError(400, "body must be JSON")
+        if not isinstance(data, dict):
+            raise ControlError(400, "body must be a JSON object")
+        return data
+
+    def _send(self, status: int, data: dict):
+        body = json.dumps(data).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def address_string(self):
+        return "agent"
+
+    def log_message(self, fmt, *args):
+        log.debug("control: %s", fmt % args)
+
+
+class _UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+
+    def get_request(self):
+        conn, _ = super().get_request()
+        return conn, ("agent", 0)  # BaseHTTPRequestHandler expects a (host, port)
+
+
+class ControlServer:
+    def __init__(self, control: WifiControl, path: Path = CONTROL_SOCKET, group: str = "eventscreen"):
+        self.control = control
+        self.path = Path(path)
+        self.group = group
+        self.httpd: _UnixHTTPServer | None = None
+
+    def start(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.unlink(missing_ok=True)
+        handler = type("BoundControlHandler", (ControlHandler,), {"control": self.control})
+        self.httpd = _UnixHTTPServer(str(self.path), handler)
+        # Only root and the agent's group may change the Wi-Fi.
+        try:
+            os.chown(self.path, -1, grp.getgrnam(self.group).gr_gid)
+        except (KeyError, PermissionError):
+            pass
+        os.chmod(self.path, 0o660)
+        threading.Thread(target=self.httpd.serve_forever, name="wifi-control", daemon=True).start()
+
+    def stop(self) -> None:
+        if self.httpd:
+            self.httpd.shutdown()
+            self.httpd.server_close()
+            self.httpd = None
+            self.path.unlink(missing_ok=True)
+
+
 def validate(ssid: str, password: str) -> str:
     if not ssid:
         return "Pick a network or type its name."
@@ -483,9 +742,6 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(levelname)s %(name)s: %(message)s")
 
     cfg = config.load(args.config)
-    if not cfg.wifi_fallback:
-        log.info("wifi_fallback is off in %s; nothing to do", args.config)
-        return 0
     nm = NetworkManager()
     if not nm.has_wifi():
         log.info("no %s on this machine; nothing to do", IFACE)
@@ -495,19 +751,26 @@ def main(argv: list[str] | None = None) -> int:
     server = SetupServer(fallback)
     fallback.on_hotspot_up = server.start
     fallback.on_hotspot_down = server.stop
-    log.info("watching Wi-Fi; setup hotspot %s after %ds offline", ssid, cfg.wifi_fallback_after)
+    control = ControlServer(WifiControl(nm, fallback))
+    control.start()
+    if cfg.wifi_fallback:
+        log.info("watching Wi-Fi; setup hotspot %s after %ds offline", ssid, cfg.wifi_fallback_after)
+    else:
+        log.info("wifi_fallback is off; serving the Wi-Fi API only")
 
     stopping = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stopping.set())
     signal.signal(signal.SIGINT, lambda *_: stopping.set())
     try:
         while not stopping.is_set():
-            try:
-                fallback.tick()
-            except Exception:
-                log.exception("Wi-Fi check failed")
+            if cfg.wifi_fallback:
+                try:
+                    fallback.tick()
+                except Exception:
+                    log.exception("Wi-Fi check failed")
             stopping.wait(TICK)
     finally:
+        control.stop()
         fallback.shutdown()
     return 0
 

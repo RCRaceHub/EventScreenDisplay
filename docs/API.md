@@ -11,7 +11,9 @@ central manager builds against.
 - Errors return a non-2xx status with `{"error": "message"}`.
 - **Auth.** If the screen has `api_token` set, every `PUT`, `POST` and
   `DELETE` needs `Authorization: Bearer <token>`, or it gets `401`. `GET`s
-  never need it. `GET /info` reports `auth_required`.
+  never need it. `GET /info` reports `auth_required`. Wi-Fi changes are the
+  exception: they are refused (`403`) unless a token is set, because a bad
+  change can take a screen off the network.
 - **CORS** is open (`Access-Control-Allow-Origin: *`), so a manager running
   in a browser can call screens directly.
 - Every control endpoint returns the same body as `GET /status`, so the
@@ -46,6 +48,10 @@ each result. Key screens by `id`, not by IP or hostname.
 | POST | `/api/v1/control/reload` | Reload the current page |
 | POST | `/api/v1/control/show` | Temporarily show a URL |
 | DELETE | `/api/v1/control/show` | End the temporary URL |
+| GET | `/api/v1/wifi` | Wi-Fi connection and saved networks |
+| GET | `/api/v1/wifi/scan` | Wi-Fi networks the screen can see |
+| POST | `/api/v1/wifi/networks` | Save a network, and optionally switch to it |
+| DELETE | `/api/v1/wifi/networks/{ssid}` | Forget a saved network |
 | GET | `/` or `/idle` | The idle page (HTML) |
 
 ### GET /api/v1/info
@@ -55,10 +61,11 @@ each result. Key screens by `id`, not by IP or hostname.
   "id": "screen-01",
   "name": "Pit lane board",
   "hostname": "screen-01",
-  "version": "0.2.1",
+  "version": "0.4.0",
   "api_version": "1",
   "browser": "cog",
   "auth_required": false,
+  "features": ["playlist", "control", "wifi"],
   "limits": {"default_duration": 30, "min_duration": 5}
 }
 ```
@@ -201,18 +208,105 @@ Without `duration` the page stays until `DELETE /api/v1/control/show`,
 
 Ends the temporary page and returns to the playlist.
 
+## Wi-Fi
+
+These endpoints manage the screen's Wi-Fi networks. The agent hands them to
+the `eventscreen-wifi` service, which runs as root and talks to
+NetworkManager. If that service isn't running they return `503`. Every write
+needs the bearer token, and is refused with `403` when the screen has no
+`api_token`. Passwords are never returned.
+
+The usual way to move a screen to a new venue is to **save the venue's
+network ahead of time** (`connect` left off). The screen keeps every saved
+network and joins whichever one it can see, so it connects at the venue by
+itself. If it finds none, it falls back to its setup hotspot (see the
+[user guide](user-guide.md#moving-a-screen-to-a-new-wi-fi-network)).
+
+### GET /api/v1/wifi
+
+```json
+{
+  "mode": "client",
+  "connected": {"connection": "wifi-Home", "ssid": "Home", "signal": 67, "ip": "192.168.1.50"},
+  "saved": [
+    {"ssid": "Venue", "priority": 10, "active": false},
+    {"ssid": "Home", "priority": 0, "active": true}
+  ],
+  "hotspot": {"ssid": "EventScreen-screen-01", "enabled": true, "after": 120},
+  "connecting": null,
+  "last_change": {"ssid": "Home", "ok": true, "message": "", "at": 1761955200.0}
+}
+```
+
+- `mode` is `client` normally, or `hotspot` while the screen is in Wi-Fi
+  setup mode (then `connected` is `null`). In practice you'll only see
+  `hotspot` from a device joined to the hotspot.
+- `saved` is highest priority first. When several saved networks are in
+  range, the screen joins the one with the highest priority.
+- `connecting` is the SSID being joined right now, if any.
+- `last_change` is the result of the last `connect: true` request since the
+  service started, or `null`.
+
+### GET /api/v1/wifi/scan
+
+```json
+{"networks": [{"ssid": "Venue", "signal": 70, "secure": true}]}
+```
+
+Strongest first, one entry per SSID, without the screen's own hotspot. A
+scan takes a few seconds. In setup mode it returns the scan made just before
+the hotspot started.
+
+### POST /api/v1/wifi/networks
+
+```json
+{"ssid": "Venue", "password": "venue-password", "priority": 10, "hidden": false, "connect": false}
+```
+
+| Field | Default | |
+| --- | --- | --- |
+| `ssid` | required | 1 to 32 bytes |
+| `password` | `""` | WPA2/WPA3-Personal password, 8 to 63 characters. Empty for an open network |
+| `priority` | `0` | -999 to 999. Higher wins when several saved networks are in range |
+| `hidden` | `false` | The network doesn't broadcast its name |
+| `connect` | `false` | Switch to it now |
+
+Saving an SSID that's already saved replaces it, which is how to change a
+password or priority.
+
+- Without `connect`: `201` with `{"ssid": "Venue", "saved": true, "connecting": false}`.
+  The current connection isn't touched.
+- With `connect: true`: `202` with `"connecting": true`, sent **before** the
+  switch, because the screen drops off the current network while it
+  switches (for 45 seconds at most). If the new network is a different LAN,
+  you won't be able to reach the screen from the old one afterwards. Check
+  the result later with `GET /wifi` (`last_change`). If the join fails,
+  NetworkManager goes back to the other saved networks by itself.
+
+### DELETE /api/v1/wifi/networks/{ssid}
+
+Forgets a saved network. Percent-encode the SSID in the path (`My%20Net`).
+Returns `{"ssid": "Venue", "forgotten": true}`, `404` if it isn't saved, or
+`409` if it's the network the screen is on now: connect it to another
+network first, so it can't strand itself.
+
 ## Status codes
 
 | Code | Meaning |
 | --- | --- |
 | 200 | OK |
 | 400 | Bad body or field (see `error`) |
+| 201 | Wi-Fi network saved |
+| 202 | Wi-Fi network saved; switching to it now |
 | 401 | Token missing or wrong |
+| 403 | Wi-Fi change on a screen with no `api_token` |
 | 404 | Unknown path |
 | 405 | Wrong method for this path |
+| 409 | Can't forget the Wi-Fi network the screen is on |
 | 412 | `If-Match` revision didn't match |
 | 413 | Body over 256 KB |
 | 500 | Bug in the agent (logged in `journalctl -u eventscreen`) |
+| 503 | The Wi-Fi service isn't running (`journalctl -u eventscreen-wifi`) |
 
 ## Compatibility
 
