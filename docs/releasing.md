@@ -4,22 +4,36 @@ Each release is a Debian package attached to a GitHub release.
 
 ## Cut a release
 
-1. Bump `__version__` in `eventscreen/__init__.py` (for example `0.3.0`) and
-   merge that to `main`.
-2. Tag the merge commit and push the tag:
+The tag is the version. There's nothing to bump in the code first.
 
-   ```bash
-   git checkout main && git pull
-   git tag v0.3.0
-   git push origin v0.3.0
-   ```
+1. Create a tag `vMAJOR.MINOR.PATCH` on `main`, either way:
+   - **GitHub UI:** Releases → Draft a new release → *Choose a tag* → type
+     `v0.5.1` → *Create new tag on publish*, target `main` → Publish.
+   - **Command line:**
 
-3. The **Build** workflow runs the tests, checks that the tag matches
-   `__version__`, builds `eventscreen_0.3.0_all.deb` and creates the GitHub
-   release with the package attached and generated release notes.
+     ```bash
+     git checkout main && git pull
+     git tag v0.5.1
+     git push origin v0.5.1
+     ```
+
+2. The **Build** workflow runs the tests, builds `eventscreen_0.5.1_all.deb`
+   with that version stamped in (the screen reports `0.5.1` in `/info`), and
+   attaches it to the release, creating the release with generated notes if
+   you pushed only a tag. The `.deb` appears about a minute after the tag.
+
+Pre-releases work the same way: `v0.6.0-rc1` builds `0.6.0~rc1`, which apt
+treats as older than `0.6.0`. A tag that isn't a version (for example
+`v1.2`) fails the build with a message saying so.
 
 If the workflow fails, fix the problem on `main`, delete the tag
-(`git push origin :v0.3.0 && git tag -d v0.3.0`) and tag again.
+(`git push origin :v0.5.1 && git tag -d v0.5.1`, or delete the release and
+tag in the UI) and tag again.
+
+`__version__` in `eventscreen/__init__.py` is only used for builds that
+aren't from a tag (pull requests, pushes to `main`, local builds). Bump it
+now and then, usually to the last release, so those builds report something
+close.
 
 ## Checks
 
