@@ -5,7 +5,7 @@ Maintainer: @MAINTAINER@
 Section: web
 Priority: optional
 Homepage: https://github.com/RCRaceHub/EventScreenDisplay
-Depends: python3 (>= 3.11), dbus, avahi-daemon, adduser
+Depends: python3 (>= 3.11), dbus, avahi-daemon, adduser, network-manager, dnsmasq-base
 Recommends: cog, libnss-mdns, fonts-dejavu-core
 Suggests: cage, seatd, chromium-browser
 Installed-Size: @SIZE@
@@ -14,4 +14,5 @@ Description: Lightweight web page viewer for Raspberry Pi event screens
  as live RCTC timing boards, on a Raspberry Pi Zero 2 W or Pi 3. Controlled
  over a small local HTTP API and advertised on the LAN with mDNS so a
  central manager can find it. Runs unattended and recovers by itself from
- Wi-Fi drops, server restarts and browser crashes.
+ Wi-Fi drops, server restarts and browser crashes. If it can't find a
+ known Wi-Fi network it starts a setup hotspot so a phone can pick one.

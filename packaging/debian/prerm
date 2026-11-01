@@ -2,7 +2,7 @@
 set -e
 
 if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
-    systemctl stop eventscreen.service || true
+    systemctl stop eventscreen-wifi.service eventscreen.service || true
 fi
 
 exit 0

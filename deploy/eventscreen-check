@@ -1,0 +1,4 @@
+#!/bin/sh
+# Check this screen is set up and working. See eventscreen/check.py.
+#   sudo eventscreen-check [--json]
+PYTHONPATH=/usr/lib/eventscreen exec /usr/bin/python3 -m eventscreen.check "$@"

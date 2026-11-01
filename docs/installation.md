@@ -89,10 +89,13 @@ leave out stay as they are.
 
 **The package** (`apt install`) does everything that is the same on every Pi:
 
-1. Pulls in `python3`, `dbus`, `avahi-daemon` and, as recommended packages,
-   the `cog` browser, `libnss-mdns` and a font.
+1. Pulls in `python3`, `dbus`, `avahi-daemon`, `network-manager`,
+   `dnsmasq-base` and, as recommended packages, the `cog` browser,
+   `libnss-mdns` and a font.
 2. Installs the agent to `/usr/lib/eventscreen` and the `eventscreen`
-   systemd service, then enables and starts it.
+   systemd service, then enables and starts it. Also installs and starts
+   `eventscreen-wifi`, which brings up a setup hotspot when the Pi can't
+   find a known Wi-Fi network (see [Changing the Wi-Fi network](#changing-the-wi-fi-network)).
 3. Creates the `eventscreen` system user with access to the display.
 4. Installs `/etc/eventscreen/config.toml`. apt treats it as a config file,
    so upgrades never overwrite your changes.
@@ -125,6 +128,7 @@ things go wrong:
 | Power on | Boots to the saved playlist. Shows the idle screen if there's no playlist yet. |
 | Power cut | Same as power on. The playlist is saved to disk. |
 | Wi-Fi not up yet at boot, or drops | The browser may show an error page. The agent checks the page's server every 10 seconds and reloads the page as soon as it can be reached. |
+| No known Wi-Fi for 2 minutes (new venue) | Starts its own setup hotspot and shows how to join it on the TV. See below. |
 | Timing server restarts | Same as above: reloads the page when the server answers again. |
 | Browser crashes | Restarted within a few seconds on the page that should be showing. If it keeps failing to start, retries slow down to once a minute. |
 | Agent crashes | systemd restarts it within 3 seconds. |
@@ -136,8 +140,22 @@ each screen at events.
 
 ### Changing the Wi-Fi network
 
-Do this before taking a screen to a new venue, while it can still reach your
-current network:
+**At the venue, with a phone.** If the Pi can't join any Wi-Fi it knows for
+2 minutes, it starts a setup hotspot and the TV shows its name
+(`EventScreen-<hostname>`), its password and the setup address. Join the
+hotspot from a phone; the setup page usually opens by itself, otherwise go to
+`http://10.42.0.1`. Pick the venue network, type its password and press
+Connect. The screen leaves the hotspot to join it and goes back to its
+playlist. If the password was wrong, the hotspot comes back within about a
+minute with the error on the TV and the setup page. The full walk-through is
+in the [user guide](user-guide.md#moving-a-screen-to-a-new-wi-fi-network).
+
+While the hotspot is up, the Pi drops it every 5 minutes (unless someone is
+using the setup page) to retry the networks it knows, so a screen that was
+switched on before the venue Wi-Fi was ready finds it by itself.
+
+**Beforehand, over SSH.** While the screen can still reach your current
+network, add the new one:
 
 ```bash
 ssh <you>@screen-01.local
@@ -145,9 +163,23 @@ sudo nmcli connection add type wifi con-name venue ifname wlan0 \
   ssid "VenueWiFi" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "password"
 ```
 
-The Pi keeps both networks and joins whichever it can see. If it's already at
-the venue and can't connect, re-write the SD card with the new Wi-Fi details
-(step 1) and install again.
+The Pi keeps every network it's given and joins whichever it can see.
+
+**Settings** in `/etc/eventscreen/config.toml` (restart with
+`sudo systemctl restart eventscreen-wifi`):
+
+| Key | Default | What |
+| --- | --- | --- |
+| `wifi_fallback` | `true` | Set `false` to never start the setup hotspot |
+| `wifi_fallback_after` | `120` | Seconds without a network before the hotspot starts |
+| `wifi_retry_interval` | `300` | How often the hotspot drops to retry known networks |
+| `hotspot_ssid` | `EventScreen-<hostname>` | Hotspot name |
+| `hotspot_password` | random, kept in `/var/lib/eventscreen/hotspot-password` | Hotspot password, 8 characters or more |
+
+The hotspot password is shown on the TV, so anyone who can see the screen can
+join the hotspot while it's up. That's the point of it, but it also means
+they could point the screen at a different network. The hotspot only exists
+while the screen has no network. Plugging in Ethernet also ends it.
 
 ## Updating
 
@@ -171,9 +203,12 @@ installs the package, keeping your config and playlist.
 | --- | --- |
 | `/usr/lib/eventscreen/` | The agent code |
 | `/usr/sbin/eventscreen-setup` | Per-Pi setup command |
+| `/usr/sbin/eventscreen-check` | Health check (see [Troubleshooting](#troubleshooting)) |
 | `/etc/eventscreen/config.toml` | Configuration (see comments inside) |
 | `/var/lib/eventscreen/playlist.json` | The saved playlist |
 | `/usr/lib/systemd/system/eventscreen.service` | The service |
+| `/usr/lib/systemd/system/eventscreen-wifi.service` | Wi-Fi fallback hotspot service |
+| `/etc/NetworkManager/dnsmasq-shared.d/eventscreen-captive.conf` | Sends phones on the setup hotspot to the setup page |
 | `/etc/avahi/services/eventscreen.service` | mDNS advertisement (generated from the config) |
 | `/etc/NetworkManager/conf.d/eventscreen-wifi-powersave.conf` | Wi-Fi power saving off |
 | `/usr/lib/systemd/system.conf.d/eventscreen-watchdog.conf` | Hardware watchdog |
@@ -194,6 +229,35 @@ installs the package, keeping your config and playlist.
 
 ## Troubleshooting
 
+Start with the built-in check. It tests each part of the screen and says
+what to do about anything that's wrong:
+
+```bash
+sudo eventscreen-check
+```
+
+```
+eventscreen 0.3.0 on screen-01
+  PASS  config: /etc/eventscreen/config.toml
+  PASS  service eventscreen: running
+  PASS  service avahi-daemon: running
+  PASS  service eventscreen-wifi: running
+  PASS  browser: cog installed
+  FAIL  HDMI: nothing connected: HDMI-A-1 disconnected
+        -> check the cable, adapter and TV input; force it on with sudo eventscreen-setup --resolution 1920x1080@60D
+  PASS  display mode: 1920x1080@60D
+  PASS  API: answering on port 8080, state playing
+  PASS  browser running: pid 812, 0 restarts
+  PASS  page server: http://timing.local/board reachable
+  PASS  network: connected (wifi-Venue)
+  PASS  mDNS: advertising as screen-01.local
+  PASS  power: no under-voltage or throttling
+Some checks failed.
+```
+
+It exits with 1 if anything failed, and `--json` gives the same results for
+scripts.
+
 | Symptom | Check |
 | --- | --- |
 | Screen stays on the text console | `journalctl -u eventscreen -e` for errors; `systemctl status eventscreen` |
@@ -203,6 +267,8 @@ installs the package, keeping your config and playlist.
 | Pi Zero reboots or freezes | Usually power. Check `vcgencmd get_throttled` (anything but `0x0` means under-voltage or throttling) |
 | Screen shows "No signal" | The TV may not accept 1080p at 60 Hz over that cable or adapter. Try `sudo eventscreen-setup --resolution 1920x1080@50` or `auto` |
 | `screen-01.local` vanishes now and then | Check Wi-Fi signal (`nmcli dev wifi` on the Pi). Move the Pi out from behind the TV, which blocks Wi-Fi |
+| Setup hotspot doesn't appear | `journalctl -u eventscreen-wifi -e`. It waits 2 minutes after losing the network, and does nothing if `wifi_fallback = false` or there's no `wlan0` |
+| Phone joins the hotspot but no setup page | Go to `http://10.42.0.1` by hand. Some phones say the hotspot has no internet and offer to disconnect: choose to stay connected |
 | Page loads but stops updating | `POST /api/v1/control/reload`, and check the timing server is reachable from the Pi |
 
 Live logs: `journalctl -u eventscreen -f`. For more detail, run

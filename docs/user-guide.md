@@ -17,6 +17,9 @@ to every command that changes something (the ones with `-X`).
 - If the Wi-Fi or the timing server goes down, the screen shows an error
   page and then reloads by itself within about 10 seconds of the server
   being reachable again.
+- If the screen can't find any Wi-Fi it knows for 2 minutes, for example at
+  a new venue, it shows **Wi-Fi setup** on the TV instead. See
+  [Moving a screen to a new Wi-Fi network](#moving-a-screen-to-a-new-wi-fi-network).
 
 ## Find your screens
 
@@ -114,11 +117,41 @@ done
 
 where `playlist.json` holds the `{"items": [...]}` body from above.
 
+## Moving a screen to a new Wi-Fi network
+
+You only need a phone. Switch the screen on at the venue. If it can't join
+any Wi-Fi it knows, after about 2 minutes the TV shows:
+
+- the name of the screen's own setup hotspot, `EventScreen-<screen name>`,
+- the hotspot's password,
+- the setup address, `http://10.42.0.1`.
+
+Then:
+
+1. On your phone, join the hotspot with the password from the TV.
+2. The setup page usually opens by itself. If not, open
+   `http://10.42.0.1` in the phone's browser. If the phone warns that the
+   hotspot has no internet, choose to stay connected.
+3. Pick the venue's network from the list, or type its name (tick
+   **Hidden network** if it doesn't broadcast its name). Type the password,
+   or leave it empty for an open network, and press **Connect**.
+4. Your phone drops off the hotspot, which is expected. If the screen goes
+   back to its pages, it worked. The screen remembers the network from now on.
+5. If the password was wrong or the network is out of range, the hotspot and
+   the setup message come back within about a minute, with the reason on the
+   TV. Join it again and retry.
+
+Screens remember every network they've joined, so a screen moving between
+your usual venues finds the right one by itself. If the venue Wi-Fi just
+wasn't ready when the screen was switched on, you don't need to do anything:
+the screen retries the networks it knows every 5 minutes.
+
 ## Common questions
 
 **The screen is black.** Give it 30 seconds after power-on. If it stays
 black, check the TV input and that `status` answers. If `status` doesn't
-answer, power-cycle the Pi.
+answer, power-cycle the Pi. If you can SSH in, `sudo eventscreen-check`
+says what's wrong.
 
 **A page shows an error.** The screen loads pages just like a browser would.
 Check the URL works from a laptop on the same network. When the page's

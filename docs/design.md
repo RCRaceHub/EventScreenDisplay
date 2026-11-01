@@ -46,6 +46,7 @@ the screens on the LAN and tells each one what to show.
 | Playlist survives reboots | Saved to `/var/lib/eventscreen/playlist.json` |
 | Self-healing browser | The agent restarts the browser if it exits, on the page that should be showing |
 | Recovers from Wi-Fi or server outages | Checks the page's server every 10 s and reloads the page when it comes back |
+| New venue Wi-Fi without a keyboard | Setup hotspot with a captive-portal setup page, instructions on the TV |
 | Fixed 1080p output | Installer pins the HDMI mode to 1920x1080 |
 | Survives lock-ups | Hardware watchdog reboots a hung Pi |
 | Idle screen showing the screen's name and address | Shown whenever the playlist is empty |
@@ -67,6 +68,8 @@ nothing to `pip install` and it starts quickly on a Pi Zero.
 - `api.py`: the HTTP API and the idle page.
 - `playlist.py`: validation and atomic save/load of the playlist.
 - `config.py`: reads `/etc/eventscreen/config.toml`.
+- `wifi.py`: the Wi-Fi fallback hotspot, run as its own service (see
+  below).
 
 ### Browser: Cog (WPE WebKit) by default
 
@@ -118,6 +121,50 @@ cover a different failure:
    (`RuntimeWatchdogSec=15`) reboots the Pi.
 5. **Wi-Fi power saving** is turned off, since it causes dropouts and missed
    mDNS on the Pi's Wi-Fi chip.
+6. **No known Wi-Fi** (a new venue). See the next section.
+
+### Wi-Fi setup hotspot
+
+A screen taken to a new venue has no keyboard and no network, so it needs a
+way to be told the venue Wi-Fi. The `eventscreen-wifi` service handles this.
+It runs as root, separately from the unprivileged agent, because it changes
+NetworkManager connections and listens on port 80.
+
+```
+            online ──────────────────────────────┐
+   client ◄──────────────────────────┐            │
+     │ no network for 120 s           │ joined     │ retry every 300 s
+     ▼                                │            │ (if setup page idle)
+   hotspot ── phone submits network ──┴── failed ──┘
+     ▲                                     │
+     └──────── hotspot back up ◄───────────┘
+```
+
+- Every 10 seconds it asks NetworkManager (`nmcli`) whether Wi-Fi or Ethernet
+  is connected. After `wifi_fallback_after` seconds (120) with neither, it
+  scans for networks and starts a WPA2 hotspot, `EventScreen-<hostname>`,
+  with NetworkManager's shared mode (the Pi is `10.42.0.1` and hands out
+  addresses).
+- It serves a small setup page on `http://10.42.0.1`. A dnsmasq drop-in for
+  shared connections answers every DNS name with `10.42.0.1`, and any other
+  path redirects to the setup page, so phones' captive-portal checks open it
+  automatically.
+- It asks the agent, over its local API, to `show`
+  `http://10.42.0.1/screen`, which puts the hotspot name, password and setup
+  address full-screen on the TV. It clears that override when the hotspot
+  goes away, and only if the override is its own.
+- When a phone submits a network it saves it as a NetworkManager connection
+  (`wifi-<ssid>`, autoconnect on), drops the hotspot (the Pi has one Wi-Fi
+  radio) and connects. On success the agent's prober reloads the playlist
+  page. On failure the hotspot comes straight back with the reason.
+- A screen switched on before the venue Wi-Fi is ready shouldn't need anyone,
+  so every `wifi_retry_interval` seconds (300) the hotspot drops for 45 seconds
+  to let NetworkManager retry the known networks. It doesn't do this while
+  the setup page has been used in the last 2 minutes.
+- The hotspot password is random per screen (kept in
+  `/var/lib/eventscreen/hotspot-password`) unless set in the config. It's
+  shown on the TV, which is fine: the hotspot only exists while the screen
+  has no network, and it only lets someone choose the screen's Wi-Fi.
 
 The display is pinned to 1920x1080 at the kernel level (`video=` in
 `cmdline.txt`), so it doesn't depend on what the TV advertises. Many TVs
@@ -164,7 +211,7 @@ works on every Pi model and on 32- or 64-bit Raspberry Pi OS.
 - `packaging/build-deb.sh` assembles the package with plain `dpkg-deb`, so
   it builds anywhere (a laptop, a Pi, CI) without the full Debian toolchain.
   The version comes from `eventscreen/__init__.py`.
-- The package holds everything that's the same on every Pi: code, service,
+- The package holds everything that's the same on every Pi: code, services,
   default config (a conffile, so upgrades keep local edits), Wi-Fi power-save
   and watchdog settings. `postinst` creates the `eventscreen` user and starts
   the service.

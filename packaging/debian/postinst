@@ -19,11 +19,12 @@ if [ "$1" = configure ]; then
 
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload
-        systemctl enable eventscreen.service >/dev/null 2>&1 || true
+        systemctl enable eventscreen.service eventscreen-wifi.service >/dev/null 2>&1 || true
         systemctl restart eventscreen.service || true
+        systemctl restart eventscreen-wifi.service || true
     else
-        # Building an image in a chroot: just enable it for first boot.
-        systemctl enable eventscreen.service >/dev/null 2>&1 || true
+        # Building an image in a chroot: just enable them for first boot.
+        systemctl enable eventscreen.service eventscreen-wifi.service >/dev/null 2>&1 || true
     fi
 
     if [ -z "$2" ]; then

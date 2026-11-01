@@ -15,6 +15,8 @@ on a TV, and is controlled over the network through a simple HTTP API.
   `_eventscreen._tcp`), ready for a central manager.
 - Recovers on its own from power cuts, network drops, browser crashes and
   lock-ups (hardware watchdog).
+- **New venue Wi-Fi from a phone**: with no known network, it starts a setup
+  hotspot and shows how to join it on the TV.
 
 ## Quick start
 
@@ -60,8 +62,18 @@ python3 -m eventscreen --config deploy/config.example.toml \
 Run the tests:
 
 ```bash
-python3 -m unittest -v
+python3 -m unittest discover -v -s tests -t .
 ```
+
+They need nothing but Python and bash, and cover the HTTP API end to end
+(with the dummy browser), playlist rotation, browser restarts, recovery when
+a page's server comes back, the Wi-Fi setup hotspot (with a fake
+NetworkManager), `eventscreen-setup` (against a scratch root),
+`eventscreen-check`, config and playlist handling. CI runs them on Python
+3.11 and 3.13 for every push and pull request, as separate checks from the
+package build. See [docs/releasing.md](docs/releasing.md#checks).
+
+On a real Pi, `sudo eventscreen-check` checks the installed screen.
 
 Build the Debian package (needs `dpkg-deb`):
 

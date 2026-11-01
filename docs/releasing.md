@@ -21,6 +21,23 @@ Each release is a Debian package attached to a GitHub release.
 If the workflow fails, fix the problem on `main`, delete the tag
 (`git push origin :v0.3.0 && git tag -d v0.3.0`) and tag again.
 
+## Checks
+
+The **Build** workflow runs on every push to `main`, every pull request and
+every `v*` tag, as separate checks:
+
+| Check | What it does |
+| --- | --- |
+| `Tests (Python 3.11)` / `Tests (Python 3.13)` | All the unit and API tests in `tests/`, on the Python in Raspberry Pi OS Bookworm (3.11) and Trixie (3.13) |
+| `Shell scripts` | `shellcheck` on the installer, `eventscreen-setup`, `eventscreen-check` and the package scripts |
+| `Package` | Runs only if both pass. Builds the `.deb`, installs and purges it on Ubuntu, and on a tag attaches it to the release |
+
+To stop anything being merged with failing tests, make the checks required:
+**Settings → Branches → Add branch protection rule** (or **Rulesets**) for
+`main`, tick **Require status checks to pass before merging** and add
+`Tests (Python 3.11)`, `Tests (Python 3.13)`, `Shell scripts` and `Package`.
+A check only appears in that list after it has run once.
+
 ## Versions
 
 - `MAJOR.MINOR.PATCH`. Bump PATCH for fixes, MINOR for new features, and

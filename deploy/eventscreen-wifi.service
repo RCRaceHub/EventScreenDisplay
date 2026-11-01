@@ -1,0 +1,19 @@
+[Unit]
+Description=EventScreenDisplay Wi-Fi fallback hotspot
+Documentation=file:///usr/share/doc/eventscreen/user-guide.md
+After=NetworkManager.service eventscreen.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+# Runs as root because it changes NetworkManager connections and serves the
+# setup page on port 80 of the hotspot address.
+WorkingDirectory=/usr/lib/eventscreen
+Environment=PYTHONPATH=/usr/lib/eventscreen
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m eventscreen.wifi --config /etc/eventscreen/config.toml
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
