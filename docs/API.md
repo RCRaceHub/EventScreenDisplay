@@ -48,11 +48,18 @@ each result. Key screens by `id`, not by IP or hostname.
 | POST | `/api/v1/control/reload` | Reload the current page |
 | POST | `/api/v1/control/show` | Temporarily show a URL |
 | DELETE | `/api/v1/control/show` | End the temporary URL |
+| GET | `/api/v1/message` | The full-screen event message, if any |
+| PUT/POST | `/api/v1/message` | Put up a hold or announce screen |
+| DELETE | `/api/v1/message` | Take it down |
+| GET | `/api/v1/banner` | The banner, if any |
+| PUT/POST | `/api/v1/banner` | Put a banner across the bottom |
+| DELETE | `/api/v1/banner` | Take it down |
 | GET | `/api/v1/wifi` | Wi-Fi connection and saved networks |
 | GET | `/api/v1/wifi/scan` | Wi-Fi networks the screen can see |
 | POST | `/api/v1/wifi/networks` | Save a network, and optionally switch to it |
 | DELETE | `/api/v1/wifi/networks/{ssid}` | Forget a saved network |
 | GET | `/` or `/idle` | The idle page (HTML) |
+| GET | `/message` | The page that draws the event message (HTML) |
 
 ### GET /api/v1/info
 
@@ -61,11 +68,11 @@ each result. Key screens by `id`, not by IP or hostname.
   "id": "screen-01",
   "name": "Pit lane board",
   "hostname": "screen-01",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "api_version": "1",
   "browser": "cog",
   "auth_required": false,
-  "features": ["playlist", "control", "wifi"],
+  "features": ["playlist", "control", "wifi", "message", "banner"],
   "limits": {"default_duration": 30, "min_duration": 5}
 }
 ```
@@ -88,6 +95,8 @@ each result. Key screens by `id`, not by IP or hostname.
     "ends_at": 1793408730.1
   },
   "override": null,
+  "message": null,
+  "banner": null,
   "network": {"page_reachable": true, "checked_at": 1793408725.0},
   "playlist": {"revision": 4, "length": 3, "updated_at": 1793405000.0, "source": "event-42"},
   "browser": {
@@ -102,7 +111,10 @@ each result. Key screens by `id`, not by IP or hostname.
 }
 ```
 
-- `state`: `idle` (empty playlist), `playing`, `paused` or `override`.
+- `state`: `idle` (empty playlist), `playing`, `paused`, `override`, or
+  `message` while a full-screen event message is up.
+- `message`, `banner`: the same objects as `GET /message` and `GET /banner`,
+  or `null`.
 - `index`: position in the playlist, or `null` when it's empty.
 - `current.ends_at`: when the page will change, or `null` if it won't on its
   own (paused, a single-item playlist, the idle page, or an open-ended override).
@@ -208,9 +220,90 @@ Shows a URL over the playlist, then returns to where the playlist was.
 Without `duration` the page stays until `DELETE /api/v1/control/show`,
 `next`, `previous` or `goto`. Not saved across restarts.
 
+An event message (below) covers a `show`; the `show` carries on underneath
+and its time keeps running. Add `"above_messages": true` to show the URL
+over a message instead. The screen uses this for its own Wi-Fi setup screen.
+
 ### DELETE /api/v1/control/show
 
 Ends the temporary page and returns to the playlist.
+
+## Event messages and banners
+
+Two ways for the timing system to tell people what's going on, for example
+between qualifying and the finals:
+
+- **Message**: takes over the whole screen. `hold` is for a wait of unknown
+  length ("Finals being calculated") and shows a gentle animation so the
+  screen doesn't look frozen. `announce` is for news ("Finals lists are up").
+  The screen draws it itself, so it stays up even if the timing server goes
+  away. It covers the playlist and any `show`; when it ends, the screen
+  goes back to them.
+- **Banner**: a strip across the bottom of whatever is showing, for short
+  notices ("Drivers' briefing in 5 minutes at race control"). Text too long
+  to fit scrolls.
+
+Each screen holds at most one message and one banner; setting a new one
+replaces the old. Both are saved, so they survive a reboot. Set them with
+`PUT` or `POST` (they do the same thing), clear them with `DELETE`. Writes
+need the bearer token when the screen has an `api_token`. Every call returns
+the current item, as `GET` does.
+
+Check that `info.features` includes `"message"` / `"banner"` before using
+them; older screens return `404`.
+
+### PUT /api/v1/message
+
+```json
+{"style": "hold", "title": "Finals being calculated", "text": "Lists will be up shortly", "level": "info"}
+```
+
+| Field | Default | |
+| --- | --- | --- |
+| `title` | required | Up to 120 characters. Shown large |
+| `text` | `""` | Up to 500 characters, line breaks kept. Shown under the title |
+| `style` | `"hold"` | `hold` (waiting, with animation) or `announce` |
+| `level` | `"info"` | `info` (blue), `warning` (amber) or `urgent` (red; an urgent announce flashes three times) |
+| `duration` | none | Seconds until it goes by itself. Leave it out to keep it up until cleared |
+
+Response, and `GET /api/v1/message`:
+
+```json
+{"message": {"style": "hold", "title": "Finals being calculated", "text": "Lists will be up shortly",
+             "level": "info", "since": 1793408728.5, "until": null}}
+```
+
+`message` is `null` when there's none. Changing the text of a message
+that's up takes about a second to show, with no reload.
+
+A typical finals flow: `PUT /message` a hold when qualifying ends; when the
+lists are ready, `PUT /playlist` the finals boards and `PUT /message` an
+announce with `"duration": 30`. People see the announcement, then the
+boards.
+
+### PUT /api/v1/banner
+
+```json
+{"text": "Drivers' briefing in 5 minutes at race control", "level": "warning", "duration": 300}
+```
+
+| Field | Default | |
+| --- | --- | --- |
+| `text` | required | Up to 500 characters |
+| `level` | `"info"` | `info`, `warning` or `urgent` |
+| `duration` | none | Seconds until it goes by itself |
+
+Response, and `GET /api/v1/banner`:
+
+```json
+{"banner": {"text": "Drivers' briefing in 5 minutes at race control", "level": "warning",
+            "since": 1793408728.5, "until": 1793409028.5, "visible": true}}
+```
+
+The banner is drawn by the preloading stage, so it only appears over pages
+shown there. `visible` is `false` when the screen has `preload = false`, or
+the page on screen refuses to be framed and was opened directly. It doesn't
+appear over a full-screen message either (put the words in the message).
 
 ## Wi-Fi
 
@@ -299,12 +392,12 @@ network first, so it can't strand itself.
 | Code | Meaning |
 | --- | --- |
 | 200 | OK |
-| 400 | Bad body or field (see `error`) |
+| 400 | Bad body or field (see `error`), such as a message without a title |
 | 201 | Wi-Fi network saved |
 | 202 | Wi-Fi network saved; switching to it now |
 | 401 | Token missing or wrong |
 | 403 | Wi-Fi change on a screen with no `api_token` |
-| 404 | Unknown path |
+| 404 | Unknown path (or a feature this screen's version doesn't have) |
 | 405 | Wrong method for this path |
 | 409 | Can't forget the Wi-Fi network the screen is on |
 | 412 | `If-Match` revision didn't match |

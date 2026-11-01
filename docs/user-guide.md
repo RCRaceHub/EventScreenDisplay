@@ -46,6 +46,7 @@ curl http://screen-01.local:8080/api/v1/status
 - `playing`: cycling through the playlist.
 - `paused`: holding on the current page.
 - `override`: showing a temporary page (see below).
+- `message`: showing a full-screen event message (see below).
 
 `current.url` is what's on screen now and `browser.running` should be `true`.
 
@@ -108,6 +109,56 @@ Leave out `duration` to keep it up until you clear it:
 ```bash
 curl -X DELETE http://screen-01.local:8080/api/v1/control/show
 ```
+
+## Event messages: "please wait" and "finals are up"
+
+For the gaps in an event that don't have a set length, such as recalculating
+the finals after qualifying, put up a **hold** screen. It fills the screen
+with your message and a slow pulsing animation, so people can see the screen
+hasn't frozen:
+
+```bash
+curl -X PUT http://screen-01.local:8080/api/v1/message \
+  -H "Content-Type: application/json" \
+  -d '{"style": "hold", "title": "Finals being calculated", "text": "Lists will be up shortly"}'
+```
+
+It stays up until you change or clear it, and comes back after a reboot.
+When the lists are ready, switch it to an **announce** that goes by itself
+after 30 seconds, and send the finals boards as the playlist:
+
+```bash
+curl -X PUT http://screen-01.local:8080/api/v1/playlist \
+  -H "Content-Type: application/json" -d @finals.json
+curl -X PUT http://screen-01.local:8080/api/v1/message \
+  -H "Content-Type: application/json" \
+  -d '{"style": "announce", "title": "Finals lists are up", "duration": 30}'
+```
+
+To take a message down straight away:
+
+```bash
+curl -X DELETE http://screen-01.local:8080/api/v1/message
+```
+
+Add `"level": "warning"` (amber) or `"level": "urgent"` (red, and an
+urgent announce flashes) for things people mustn't miss.
+
+## Banner messages
+
+A banner is a strip across the bottom of whatever's showing, for short
+notices. Long text scrolls.
+
+```bash
+curl -X PUT http://screen-01.local:8080/api/v1/banner \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Drivers briefing in 5 minutes at race control", "level": "warning", "duration": 300}'
+curl -X DELETE http://screen-01.local:8080/api/v1/banner
+```
+
+A banner shows over pages that load instantly. It won't appear over a site
+that refuses to be framed (see "How the screens behave"), and
+`banner.visible` in the status says whether it's on screen.
 
 ## Same playlist on several screens
 

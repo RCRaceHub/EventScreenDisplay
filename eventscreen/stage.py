@@ -56,12 +56,20 @@ def framable(url: str, timeout: float = 4.0) -> bool | None:
 class Stage:
     """What the stage page should show. Read by the page via long-poll."""
 
-    def __init__(self):
+    def __init__(self, messages=None):
         self._cond = threading.Condition()
         self.seq = 0
         self.active: str | None = None
         self.next: str | None = None
         self.reloads = 0
+        # The banner (messages.Messages) is drawn over the frames.
+        self.messages = messages
+        if messages is not None:
+            messages.on_change(self._changed)
+
+    def _changed(self) -> None:
+        with self._cond:
+            self._bump()
 
     def _bump(self) -> None:
         self.seq += 1
@@ -88,7 +96,9 @@ class Stage:
             self._bump()
 
     def state(self) -> dict:
-        return {"seq": self.seq, "active": self.active, "next": self.next, "reloads": self.reloads}
+        banner = self.messages.banner if self.messages is not None else None
+        return {"seq": self.seq, "active": self.active, "next": self.next, "reloads": self.reloads,
+                "banner": banner, "now": time.time()}
 
     def wait(self, since: int, timeout: float = 25.0) -> dict:
         """Return the state once seq has moved past `since`, or after timeout."""
@@ -194,7 +204,16 @@ STAGE_PAGE = """<!doctype html>
 html,body{margin:0;height:100%;overflow:hidden;background:#000}
 iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;visibility:hidden}
 iframe.on{visibility:visible}
+#banner{position:absolute;left:0;right:0;bottom:0;z-index:10;display:none;overflow:hidden;white-space:nowrap;
+  font-family:"DejaVu Sans",sans-serif;font-weight:700;font-size:4.2vh;line-height:9vh;height:9vh;
+  color:#fff;background:rgba(10,40,80,.94);border-top:.5vh solid #4aa3ff;box-shadow:0 -1vh 3vh rgba(0,0,0,.5)}
+#banner.warning{background:rgba(90,60,0,.95);border-top-color:#ffc107}
+#banner.urgent{background:rgba(120,10,10,.96);border-top-color:#ff4d4d}
+#banner span{display:inline-block;padding:0 3vw}
+#banner.scroll span{padding-left:100%;animation:scroll linear infinite}
+@keyframes scroll{from{transform:translateX(0)}to{transform:translateX(-100%)}}
 </style></head><body>
+<div id="banner"><span></span></div>
 <iframe id="a" allow="autoplay; fullscreen"></iframe><iframe id="b" allow="autoplay; fullscreen"></iframe>
 <script>
 // Two frames: one showing, one loading the next page out of sight.
@@ -237,6 +256,30 @@ function apply(s) {
   frames[other].dataset.keep = s.next ? "1" : "";
   if (reloads !== null && s.reloads !== reloads && url(frames[shown])) load(frames[shown], url(frames[shown]));
   reloads = s.reloads;
+  showBanner(s.banner, s.now);
+}
+var bannerTimer = null, bannerKey = "";
+function showBanner(b, now) {
+  var el = document.getElementById("banner"), span = el.firstChild;
+  clearTimeout(bannerTimer);
+  if (!b) { el.style.display = "none"; bannerKey = ""; return; }
+  var key = b.text + "|" + b.level;
+  if (key !== bannerKey) {
+    bannerKey = key;
+    span.textContent = b.text;
+    el.className = b.level;
+    el.style.display = "block";
+    span.style.animationDuration = "";
+    // Too long to fit: scroll it, at a steady reading speed.
+    if (span.scrollWidth > el.clientWidth) {
+      el.className = b.level + " scroll";
+      span.style.animationDuration = Math.max(8, (span.scrollWidth + el.clientWidth) / (el.clientWidth / 9)) + "s";
+    }
+  }
+  el.style.display = "block";
+  // Hide it on time even if the agent doesn't say so.
+  if (b.until) bannerTimer = setTimeout(function () { el.style.display = "none"; bannerKey = ""; },
+                                        Math.max(0, (b.until - now) * 1000));
 }
 function poll() {
   var x = new XMLHttpRequest();

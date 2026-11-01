@@ -254,7 +254,8 @@ class Screen:
     def show(self) -> None:
         try:
             if not self.showing():
-                self._call("POST", "/control/show", {"url": SCREEN_URL, "label": "Wi-Fi setup"})
+                self._call("POST", "/control/show", {"url": SCREEN_URL, "label": "Wi-Fi setup",
+                                                     "above_messages": True})
         except Exception as e:
             log.warning("couldn't put Wi-Fi setup on the screen: %s", e)
 

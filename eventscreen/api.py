@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from . import API_VERSION, __version__
+from .messages import MESSAGE_PAGE, MessageError, Messages
 from .stage import STAGE_PAGE
 from .wifi import CONTROL_SOCKET
 from .config import Config
@@ -69,10 +70,12 @@ class _UnixConnection(http.client.HTTPConnection):
 class Agent:
     """Glue between the HTTP handler and the player."""
 
-    def __init__(self, cfg: Config, player: Player, wifi: WifiClient | None = None, stage=None):
+    def __init__(self, cfg: Config, player: Player, wifi: WifiClient | None = None, stage=None,
+                 messages: Messages | None = None):
         self.cfg = cfg
         self.player = player
         self.stage = stage
+        self.messages = messages if messages is not None else getattr(player, "messages", None) or Messages()
         self.wifi = wifi or WifiClient()
         self.booted_at = time.time()
 
@@ -86,7 +89,7 @@ class Agent:
             "browser": self.cfg.browser,
             "auth_required": bool(self.cfg.api_token),
             # Lets a manager tell which endpoint groups a screen has.
-            "features": ["playlist", "control", "wifi"],
+            "features": ["playlist", "control", "wifi", "message", "banner"],
             "limits": {
                 "default_duration": self.cfg.default_duration,
                 "min_duration": self.cfg.min_duration,
@@ -100,7 +103,18 @@ class Agent:
             "time": time.time(),
             **self.player.status(),
             "browser": self.player.browser.status(),
+            "message": self.messages.message,
+            "banner": self.banner_status(),
         }
+
+    def banner_status(self) -> dict | None:
+        banner = self.messages.banner
+        if banner is None:
+            return None
+        # A banner is drawn by the stage page, so it only shows while the
+        # screen is on the stage (preload on, page allows framing).
+        on_stage = getattr(self.player.browser, "on_stage", None)
+        return {**banner, "visible": bool(self.stage is not None and on_stage and on_stage())}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -145,6 +159,15 @@ class Handler(BaseHTTPRequestHandler):
             ("POST", f"{PREFIX}/control/goto"): self.ctl(self._goto),
             ("POST", f"{PREFIX}/control/show"): self.ctl(self._show),
             ("DELETE", f"{PREFIX}/control/show"): self.ctl(lambda b: self.agent.player.clear_override()),
+            ("GET", f"{PREFIX}/message"): lambda: self._json({"message": self.agent.messages.message}),
+            ("PUT", f"{PREFIX}/message"): lambda: self._set(self.agent.messages.set_message, "message"),
+            ("POST", f"{PREFIX}/message"): lambda: self._set(self.agent.messages.set_message, "message"),
+            ("DELETE", f"{PREFIX}/message"): lambda: self._clear(self.agent.messages.clear_message, "message"),
+            ("GET", f"{PREFIX}/banner"): lambda: self._json({"banner": self.agent.banner_status()}),
+            ("PUT", f"{PREFIX}/banner"): lambda: self._set(self.agent.messages.set_banner, "banner"),
+            ("POST", f"{PREFIX}/banner"): lambda: self._set(self.agent.messages.set_banner, "banner"),
+            ("DELETE", f"{PREFIX}/banner"): lambda: self._clear(self.agent.messages.clear_banner, "banner"),
+            ("GET", "/message"): lambda: self._html(MESSAGE_PAGE),
             ("GET", f"{PREFIX}/wifi"): lambda: self._wifi("GET", "/wifi"),
             ("GET", f"{PREFIX}/wifi/scan"): lambda: self._wifi("GET", "/wifi/scan"),
             ("POST", f"{PREFIX}/wifi/networks"): lambda: self._wifi("POST", "/wifi/networks", self._body()),
@@ -236,7 +259,28 @@ class Handler(BaseHTTPRequestHandler):
                 duration = parse_duration(duration, 0, self.agent.cfg.min_duration)
         except PlaylistError as e:
             raise ApiError(HTTPStatus.BAD_REQUEST, str(e))
-        self.agent.player.show(Item(url=url, duration=duration or 0, label=str(body.get("label", ""))), duration)
+        above = body.get("above_messages", False)
+        if not isinstance(above, bool):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "above_messages must be true or false")
+        self.agent.player.show(Item(url=url, duration=duration or 0, label=str(body.get("label", ""))),
+                               duration, above_messages=above)
+
+    def _set(self, setter, key: str):
+        try:
+            setter(self._body())
+        except MessageError as e:
+            raise ApiError(HTTPStatus.BAD_REQUEST, str(e))
+        self._get_slot(key)
+
+    def _clear(self, clearer, key: str):
+        clearer()
+        self._get_slot(key)
+
+    def _get_slot(self, key: str):
+        if key == "banner":
+            self._json({"banner": self.agent.banner_status()})
+        else:
+            self._json({"message": self.agent.messages.message})
 
     def _wifi(self, method: str, path: str, body: dict | None = None):
         status, data = self.agent.wifi.call(method, path, body)

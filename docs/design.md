@@ -43,6 +43,8 @@ the screens on the LAN and tells each one what to show.
 | Pause and resume the rotation | `POST /api/v1/control/{pause,resume}` |
 | Temporarily show a page (an announcement, results), then return | `POST /api/v1/control/show` |
 | Reload the current page | `POST /api/v1/control/reload` |
+| Full-screen event messages ("Finals being calculated", "Finals lists are up") | `PUT /api/v1/message`, drawn by the screen itself |
+| Banner across the bottom of whatever's showing | `PUT /api/v1/banner`, drawn on the stage |
 | Live status for monitoring | `GET /api/v1/status` |
 | Playlist survives reboots | Saved to `/var/lib/eventscreen/playlist.json` |
 | Self-healing browser | The agent restarts the browser if it exits, on the page that should be showing |
@@ -123,6 +125,31 @@ long-polling `/stage/state`.
   seconds at most, so there's still no blank gap.
 - `preload = false` in the config turns all of this off and navigates the
   browser to each page directly.
+
+### Event messages and banners
+
+Between sessions there are waits nobody can time, such as recalculating the
+finals, and people need to know what's happening. The timing system can put
+up two kinds of message (see [the API](API.md#event-messages-and-banners)):
+
+- A **message** takes over the whole screen. It's drawn by the agent's own
+  `/message` page, not by the timing server, so it stays up through a
+  server restart or a dropped Wi-Fi link. That's exactly when a "please
+  wait" is needed most. The page polls the agent once a second, so a
+  changed title appears without a reload. A `hold` has a slow pulsing
+  animation so the screen never looks frozen during a long wait; an
+  urgent `announce` flashes three times.
+- A **banner** is drawn by the stage page over its frames, so it costs
+  nothing extra and shows over any framed page. It can't be drawn over a
+  page the browser was sent to directly (preload off, or a site that
+  refuses framing); `status.banner.visible` reports that.
+
+What's on screen is decided in this order: the Wi-Fi setup screen, then a
+message, then a `show`, then the playlist (or the idle page). A message
+doesn't stop the clock underneath it: a `show` with a duration still ends
+on time, so when the message goes, the screen shows what it would have
+shown anyway. Both are saved in `messages.json` in the state directory and
+expire by themselves if given a `duration`, including across a reboot.
 
 ### Unattended operation
 
