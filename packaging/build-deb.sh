@@ -3,7 +3,9 @@
 #
 #   packaging/build-deb.sh [VERSION]
 #
-# VERSION defaults to __version__ in eventscreen/__init__.py. Only needs
+# VERSION defaults to __version__ in eventscreen/__init__.py. When given, it
+# is also written into the packaged __init__.py, so the agent reports the
+# version it was released as (CI passes the tag's version this way). Only needs
 # dpkg-deb, so it runs on any Debian/Ubuntu machine, a Pi or a CI runner.
 # Set MAINTAINER to override the Maintainer field.
 set -euo pipefail
@@ -21,6 +23,7 @@ install -d "$ROOT/usr/lib/eventscreen"
 cp -r "$SRC/eventscreen" "$ROOT/usr/lib/eventscreen/"
 find "$ROOT/usr/lib/eventscreen" -name __pycache__ -prune -exec rm -rf {} +
 find "$ROOT/usr/lib/eventscreen" -type f -exec chmod 0644 {} +
+sed -i "s/^__version__ = \".*\"/__version__ = \"$VERSION\"/" "$ROOT/usr/lib/eventscreen/eventscreen/__init__.py"
 install -D -m 0755 "$SRC/deploy/eventscreen-setup"   "$ROOT/usr/sbin/eventscreen-setup"
 install -D -m 0755 "$SRC/deploy/eventscreen-check"   "$ROOT/usr/sbin/eventscreen-check"
 install -D -m 0644 "$SRC/deploy/eventscreen.service" "$ROOT/usr/lib/systemd/system/eventscreen.service"

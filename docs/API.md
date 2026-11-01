@@ -114,7 +114,7 @@ each result. Key screens by `id`, not by IP or hostname.
   the server of the page on screen at `network.checked_at` (checked every 10
   seconds). `null` before the first check and on the idle page. When it goes
   from `false` to `true` the screen reloads the page by itself.
-- `browser.restarts` counts browser crashes recovered since the agent started;
+- `browser.restarts` counts browser restarts since the agent started (crashes, and navigations the browser rejected);
   a climbing number is worth alerting on.
 
 `time` is the screen's clock, so a manager can spot a Pi with a wrong clock.

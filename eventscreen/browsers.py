@@ -61,10 +61,18 @@ class Browser:
         try:
             self._navigate(url)
             self.current_url = url
+        except subprocess.TimeoutExpired:
+            # The browser is alive but slow to answer (busy with a heavy
+            # page on a Pi). The command usually still lands, and restarting
+            # would flash the text console, so leave it be.
+            self.current_url = url
+            self.last_error = "browser slow to answer navigate; not restarting"
+            log.warning("%s for %s", self.last_error, url)
         except Exception as e:
             self.last_error = f"navigate failed: {e}"
             log.warning("%s; restarting browser", self.last_error)
             self.stop()
+            self.restarts += 1
             self._start(url)
 
     def reload(self) -> None:
@@ -79,6 +87,7 @@ class Browser:
             self.last_error = f"reload failed: {e}"
             log.warning("%s; restarting browser", self.last_error)
             self.stop()
+            self.restarts += 1
             self._start(self.current_url)
 
     def ensure_running(self) -> None:
@@ -154,8 +163,8 @@ class CogBrowser(Browser):
     def _reload(self) -> None:
         self._cogctl("reload")
 
-    def _cogctl(self, *args: str) -> None:
-        subprocess.run([_which("cogctl"), *args], check=True, timeout=5,
+    def _cogctl(self, *args: str, timeout: float = 15) -> None:
+        subprocess.run([_which("cogctl"), *args], check=True, timeout=timeout,
                        capture_output=True)
 
     def _after_start(self) -> None:
@@ -163,7 +172,7 @@ class CogBrowser(Browser):
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline and self.alive():
             try:
-                self._cogctl("ping")
+                self._cogctl("ping", timeout=5)
                 return
             except Exception:
                 time.sleep(0.5)

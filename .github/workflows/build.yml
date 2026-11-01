@@ -47,17 +47,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check the tag matches the version
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Work out the version
+        shell: bash
         run: |
-          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' eventscreen/__init__.py)
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::tag $GITHUB_REF_NAME doesn't match __version__ $version"
-            exit 1
+          # A v* tag sets the version (v0.5.1 -> 0.5.1), so releasing a patch
+          # is just pushing a tag. Other builds use __version__ from the code.
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then
+            version=${GITHUB_REF_NAME#v}
+            if ! [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.~][0-9A-Za-z.]+)?$ ]]; then
+              echo "::error::tag $GITHUB_REF_NAME isn't a version; use vMAJOR.MINOR.PATCH, e.g. v0.5.1 or v0.6.0-rc1"
+              exit 1
+            fi
+            # v0.6.0-rc1 -> 0.6.0~rc1, which Debian sorts before 0.6.0.
+            version=${version//-/\~}
+          else
+            version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' eventscreen/__init__.py)
           fi
+          echo "Building version $version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build .deb
-        run: packaging/build-deb.sh
+        run: packaging/build-deb.sh "$VERSION"
 
       - name: Install it
         run: |
@@ -68,7 +78,9 @@ jobs:
           # Runs end to end; on a CI runner most checks fail (no Pi), so ignore the exit code.
           sudo eventscreen-check || true
           test -f /usr/lib/systemd/system/eventscreen-wifi.service
-          PYTHONPATH=/usr/lib/eventscreen python3 -c "import eventscreen; print(eventscreen.__version__)"
+          installed=$(PYTHONPATH=/usr/lib/eventscreen python3 -c "import eventscreen; print(eventscreen.__version__)")
+          echo "installed $installed"
+          test "$installed" = "$VERSION"
           sudo apt-get purge -y eventscreen
 
       - uses: actions/upload-artifact@v4
