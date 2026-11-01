@@ -11,26 +11,41 @@ permissions:
   contents: write  # to attach the .deb to a release
 
 jobs:
+  test:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is Raspberry Pi OS Bookworm, the oldest supported; 3.13 is Trixie.
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit and API tests
+        run: python -m unittest discover -v -s tests -t .
+
+  lint:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          shellcheck -S warning deploy/install.sh deploy/eventscreen-setup deploy/eventscreen-check packaging/build-deb.sh
+          shellcheck -S warning -s sh packaging/debian/postinst packaging/debian/prerm packaging/debian/postrm
+
   deb:
+    name: Package
+    needs: [test, lint]
     runs-on: ubuntu-latest
     env:
       # Optional, lets a release publish to RCRaceHub/apt immediately.
       APT_DISPATCH_TOKEN: ${{ secrets.APT_DISPATCH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          # Oldest Python the package supports (Raspberry Pi OS Bookworm).
-          python-version: "3.11"
-
-      - name: Test
-        run: python -m unittest -v
-
-      - name: Check shell scripts
-        run: |
-          shellcheck -S warning deploy/install.sh deploy/eventscreen-setup packaging/build-deb.sh
-          shellcheck -S warning -s sh packaging/debian/postinst packaging/debian/prerm packaging/debian/postrm
 
       - name: Check the tag matches the version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -50,6 +65,8 @@ jobs:
           # avahi-daemon etc. come from Ubuntu here; cog is only Recommended.
           sudo apt-get install -y ./dist/eventscreen_*_all.deb
           test -x /usr/sbin/eventscreen-setup
+          # Runs end to end; on a CI runner most checks fail (no Pi), so ignore the exit code.
+          sudo eventscreen-check || true
           test -f /usr/lib/systemd/system/eventscreen-wifi.service
           PYTHONPATH=/usr/lib/eventscreen python3 -c "import eventscreen; print(eventscreen.__version__)"
           sudo apt-get purge -y eventscreen

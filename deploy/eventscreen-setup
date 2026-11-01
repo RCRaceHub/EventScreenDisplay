@@ -34,12 +34,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ $EUID -ne 0 ]]; then
+# Tests point ROOT at a scratch directory and put fake systemctl etc. on PATH.
+ROOT=${EVENTSCREEN_ROOT:-}
+if [[ $EUID -ne 0 && -z $ROOT ]]; then
   echo "run me with sudo" >&2
   exit 1
 fi
 
-CONF=/etc/eventscreen/config.toml
+CONF=$ROOT/etc/eventscreen/config.toml
 REBOOT=""
 
 step() { echo; echo "==> $*"; }
@@ -76,17 +78,17 @@ if [[ -n "$TOKEN" ]]; then set_conf api_token "\"$TOKEN\""; fi
 if [[ -n "$HOSTNAME_NEW" && "$HOSTNAME_NEW" != "$(hostname)" ]]; then
   step "Setting hostname to $HOSTNAME_NEW (reachable as $HOSTNAME_NEW.local)"
   hostnamectl set-hostname "$HOSTNAME_NEW"
-  if grep -q '^127\.0\.1\.1' /etc/hosts; then
-    sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$HOSTNAME_NEW/" /etc/hosts
+  if grep -q '^127\.0\.1\.1' "$ROOT/etc/hosts"; then
+    sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$HOSTNAME_NEW/" "$ROOT/etc/hosts"
   else
-    printf '127.0.1.1\t%s\n' "$HOSTNAME_NEW" >> /etc/hosts
+    printf '127.0.1.1\t%s\n' "$HOSTNAME_NEW" >> "$ROOT/etc/hosts"
   fi
   REBOOT=1
 fi
 
 step "Tuning the display for a kiosk"
-CMDLINE=/boot/firmware/cmdline.txt
-[[ -f $CMDLINE ]] || CMDLINE=/boot/cmdline.txt
+CMDLINE=$ROOT/boot/firmware/cmdline.txt
+[[ -f $CMDLINE ]] || CMDLINE=$ROOT/boot/cmdline.txt
 if [[ -f $CMDLINE ]]; then
   BEFORE=$(cat "$CMDLINE")
   # Stop the text console blanking the screen.

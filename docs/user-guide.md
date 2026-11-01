@@ -150,7 +150,8 @@ the screen retries the networks it knows every 5 minutes.
 
 **The screen is black.** Give it 30 seconds after power-on. If it stays
 black, check the TV input and that `status` answers. If `status` doesn't
-answer, power-cycle the Pi.
+answer, power-cycle the Pi. If you can SSH in, `sudo eventscreen-check`
+says what's wrong.
 
 **A page shows an error.** The screen loads pages just like a browser would.
 Check the URL works from a laptop on the same network. When the page's

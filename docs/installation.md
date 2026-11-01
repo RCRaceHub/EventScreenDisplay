@@ -203,6 +203,7 @@ installs the package, keeping your config and playlist.
 | --- | --- |
 | `/usr/lib/eventscreen/` | The agent code |
 | `/usr/sbin/eventscreen-setup` | Per-Pi setup command |
+| `/usr/sbin/eventscreen-check` | Health check (see [Troubleshooting](#troubleshooting)) |
 | `/etc/eventscreen/config.toml` | Configuration (see comments inside) |
 | `/var/lib/eventscreen/playlist.json` | The saved playlist |
 | `/usr/lib/systemd/system/eventscreen.service` | The service |
@@ -227,6 +228,35 @@ installs the package, keeping your config and playlist.
   on the TV ("Just scan", "Screen fit" or "1:1").
 
 ## Troubleshooting
+
+Start with the built-in check. It tests each part of the screen and says
+what to do about anything that's wrong:
+
+```bash
+sudo eventscreen-check
+```
+
+```
+eventscreen 0.3.0 on screen-01
+  PASS  config: /etc/eventscreen/config.toml
+  PASS  service eventscreen: running
+  PASS  service avahi-daemon: running
+  PASS  service eventscreen-wifi: running
+  PASS  browser: cog installed
+  FAIL  HDMI: nothing connected: HDMI-A-1 disconnected
+        -> check the cable, adapter and TV input; force it on with sudo eventscreen-setup --resolution 1920x1080@60D
+  PASS  display mode: 1920x1080@60D
+  PASS  API: answering on port 8080, state playing
+  PASS  browser running: pid 812, 0 restarts
+  PASS  page server: http://timing.local/board reachable
+  PASS  network: connected (wifi-Venue)
+  PASS  mDNS: advertising as screen-01.local
+  PASS  power: no under-voltage or throttling
+Some checks failed.
+```
+
+It exits with 1 if anything failed, and `--json` gives the same results for
+scripts.
 
 | Symptom | Check |
 | --- | --- |

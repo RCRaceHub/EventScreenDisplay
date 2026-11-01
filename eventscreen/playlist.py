@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
+
+log = logging.getLogger(__name__)
 
 
 class PlaylistError(ValueError):
@@ -94,14 +97,24 @@ class Store:
     def load(self) -> Playlist:
         try:
             data = json.loads(self.path.read_text())
+            return Playlist(
+                items=[Item(**i) for i in data.get("items", [])],
+                revision=data.get("revision", 0),
+                updated_at=data.get("updated_at", 0.0),
+                source=data.get("source", ""),
+            )
         except FileNotFoundError:
             return Playlist()
-        return Playlist(
-            items=[Item(**i) for i in data.get("items", [])],
-            revision=data.get("revision", 0),
-            updated_at=data.get("updated_at", 0.0),
-            source=data.get("source", ""),
-        )
+        except (ValueError, TypeError, AttributeError) as e:
+            # A damaged file (say, from a power cut) mustn't stop the screen
+            # starting. Keep it for a look and start with an empty playlist.
+            bad = self.path.with_suffix(".bad")
+            log.error("can't read %s (%s); moved it to %s and starting empty", self.path, e, bad)
+            try:
+                os.replace(self.path, bad)
+            except OSError:
+                pass
+            return Playlist()
 
     def save(self, playlist: Playlist) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
