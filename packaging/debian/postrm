@@ -6,7 +6,7 @@ case "$1" in
         # Stop advertising a screen that is no longer there.
         rm -f /etc/avahi/services/eventscreen.service
         if [ -d /run/systemd/system ]; then
-            systemctl disable eventscreen.service >/dev/null 2>&1 || true
+            systemctl disable eventscreen.service eventscreen-wifi.service >/dev/null 2>&1 || true
             systemctl daemon-reload || true
         fi
         ;;

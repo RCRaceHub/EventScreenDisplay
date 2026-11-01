@@ -15,6 +15,8 @@ on a TV, and is controlled over the network through a simple HTTP API.
   `_eventscreen._tcp`), ready for a central manager.
 - Recovers on its own from power cuts, network drops, browser crashes and
   lock-ups (hardware watchdog).
+- **New venue Wi-Fi from a phone**: with no known network, it starts a setup
+  hotspot and shows how to join it on the TV.
 
 ## Quick start
 

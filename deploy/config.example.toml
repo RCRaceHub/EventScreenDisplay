@@ -32,3 +32,15 @@ min_duration = 5
 
 # Where the playlist is saved so it survives a reboot.
 state_dir = "/var/lib/eventscreen"
+
+# Wi-Fi fallback hotspot. If the screen can't join any known Wi-Fi for
+# wifi_fallback_after seconds, it starts its own hotspot and shows the
+# hotspot name, password and setup address on the TV. Join it from a phone to
+# pick the venue's Wi-Fi. See docs/user-guide.md.
+wifi_fallback = true
+wifi_fallback_after = 120
+# While in setup mode, retry the known networks this often (seconds).
+wifi_retry_interval = 300
+# Defaults: "EventScreen-<hostname>" and a random password (at least 8 chars).
+# hotspot_ssid = ""
+# hotspot_password = ""

@@ -50,6 +50,7 @@ jobs:
           # avahi-daemon etc. come from Ubuntu here; cog is only Recommended.
           sudo apt-get install -y ./dist/eventscreen_*_all.deb
           test -x /usr/sbin/eventscreen-setup
+          test -f /usr/lib/systemd/system/eventscreen-wifi.service
           PYTHONPATH=/usr/lib/eventscreen python3 -c "import eventscreen; print(eventscreen.__version__)"
           sudo apt-get purge -y eventscreen
 

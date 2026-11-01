@@ -31,6 +31,17 @@ class Config:
     default_duration: int = 30
     # Hard floor so a bad playlist can't thrash the Pi.
     min_duration: int = 5
+    # Wi-Fi fallback hotspot (eventscreen-wifi service): when no known
+    # network has been connected for wifi_fallback_after seconds, the Pi
+    # starts its own hotspot with a setup page for entering new Wi-Fi.
+    wifi_fallback: bool = True
+    wifi_fallback_after: int = 120
+    # While the hotspot is up, drop it this often to retry known networks.
+    wifi_retry_interval: int = 300
+    # Hotspot name and WPA2 password. Empty = "EventScreen-<hostname>" and a
+    # random password kept in state_dir (both are shown on the TV).
+    hotspot_ssid: str = ""
+    hotspot_password: str = ""
 
     @property
     def playlist_path(self) -> Path:
