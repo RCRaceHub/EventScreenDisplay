@@ -30,6 +30,13 @@ default_duration = 30
 # Smallest dwell time the API will accept.
 min_duration = 5
 
+# Load the next page out of sight shortly before switching, so pages swap
+# instantly instead of showing a loading gap. Only two pages are loaded at
+# once. Sites that refuse to be framed are shown the old way automatically.
+preload = true
+# Seconds before a switch to start loading the next page.
+preload_ahead = 10
+
 # Where the playlist is saved so it survives a reboot.
 state_dir = "/var/lib/eventscreen"
 

@@ -38,8 +38,13 @@ class Override:
 
 
 class Player:
-    def __init__(self, browser: Browser, store: Store, idle_url: str, probe=reachable):
+    def __init__(self, browser: Browser, store: Store, idle_url: str, probe=reachable,
+                 preload_ahead: float = 10.0):
         self.browser = browser
+        # Seconds before a switch to start loading the next page out of sight,
+        # if the browser supports it (see stage.StageBrowser).
+        self.preload_ahead = preload_ahead
+        self._preloaded_for: float | None = None
         self.probe = probe
         self.store = store
         self.idle_url = idle_url
@@ -193,9 +198,22 @@ class Player:
             return item, None
         return item, now + item.duration
 
+    def _upcoming(self) -> Item | None:
+        """What will be shown when the current page's time is up."""
+        items = self.playlist.items
+        if self.override:
+            if self.override.until is None:
+                return None
+            return items[self.index % len(items)] if items else None
+        if len(items) < 2 or self.paused:
+            return None
+        return items[(self.index + 1) % len(items)]
+
     def _run(self) -> None:
+        can_preload = hasattr(self.browser, "preload")
         while True:
             reload = False
+            preload = None
             with self._cond:
                 if self._stop:
                     return
@@ -215,6 +233,11 @@ class Player:
                 if self._want_reload:
                     self._want_reload = False
                     reload = True
+                if (can_preload and self.ends_at is not None and self._preloaded_for != self.ends_at
+                        and now >= self.ends_at - self.preload_ahead):
+                    self._preloaded_for = self.ends_at
+                    upcoming = self._upcoming()
+                    preload = upcoming.url if upcoming else None
 
             try:
                 if target is not None and target.url != self.browser.current_url:
@@ -222,6 +245,9 @@ class Player:
                     self.browser.open(target.url)
                 elif reload:
                     self.browser.reload()
+                if preload:
+                    log.debug("preloading %s", preload)
+                    self.browser.preload(preload)
                 self.browser.ensure_running()
             except Exception as e:
                 self.browser.last_error = str(e)
@@ -238,7 +264,10 @@ class Player:
                     continue
                 timeout = HEALTH_INTERVAL
                 if self.ends_at is not None:
-                    timeout = max(0.0, min(timeout, self.ends_at - time.time()))
+                    wake = self.ends_at
+                    if can_preload and self._preloaded_for != self.ends_at:
+                        wake = self.ends_at - self.preload_ahead
+                    timeout = max(0.0, min(timeout, wake - time.time()))
                 self._cond.wait(timeout)
 
     def _watch_network(self) -> None:

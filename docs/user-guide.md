@@ -14,6 +14,9 @@ to every command that changes something (the ones with `-X`).
   exactly.
 - A screen only needs power and HDMI. Switch it on and it comes back to its
   last playlist by itself; just pull the power to switch it off.
+- Pages switch instantly: each page is loaded out of sight about 10
+  seconds before its turn. Sites that don't allow this (most big public
+  sites) still work, but show a short loading gap when they come up.
 - If the Wi-Fi or the timing server goes down, the screen shows an error
   page and then reloads by itself within about 10 seconds of the server
   being reachable again.

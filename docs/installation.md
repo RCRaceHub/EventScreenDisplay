@@ -269,6 +269,7 @@ scripts.
 | Log says `Platform setup failed: Failed to initialize DRM` | The Pi sees nothing on HDMI: `cat /sys/class/drm/card*-HDMI-A-1/status` says `disconnected`. Force HDMI on with `sudo eventscreen-setup --resolution 1920x1080@60D` and reboot (the default since 0.2.1). If it's still disconnected, check the cable or adapter and the TV input |
 | Log says `Couldn't open libGLESv2.so.2` and `The renderer process crashed` | Cog was installed without OpenGL ES, so every page crashes. `sudo apt install libgles2 && sudo systemctl restart eventscreen` (pulled in automatically since 0.4.1) |
 | `screen-01.local` doesn't resolve | Use the IP (`hostname -I` on the Pi). Some Windows PCs and guest Wi-Fi block mDNS. `systemctl status avahi-daemon` |
+| A page works in a laptop browser but not on the screen, or switches with a gap | It may refuse to be framed; the log says `refuses to be framed`. Those are shown directly, which is expected. To rule preloading out, set `preload = false` in the config and restart |
 | A page is blank or looks wrong in Cog | Try `sudo eventscreen-setup --browser chromium` to see if it's a WebKit issue |
 | Pi Zero reboots or freezes | Usually power. Check `vcgencmd get_throttled` (anything but `0x0` means under-voltage or throttling) |
 | Screen shows "No signal" | The TV may not accept 1080p at 60 Hz over that cable or adapter. Try `sudo eventscreen-setup --resolution 1920x1080@50` or `auto` |

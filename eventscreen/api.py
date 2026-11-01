@@ -12,9 +12,10 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from . import API_VERSION, __version__
+from .stage import STAGE_PAGE
 from .wifi import CONTROL_SOCKET
 from .config import Config
 from .player import Player
@@ -68,9 +69,10 @@ class _UnixConnection(http.client.HTTPConnection):
 class Agent:
     """Glue between the HTTP handler and the player."""
 
-    def __init__(self, cfg: Config, player: Player, wifi: WifiClient | None = None):
+    def __init__(self, cfg: Config, player: Player, wifi: WifiClient | None = None, stage=None):
         self.cfg = cfg
         self.player = player
+        self.stage = stage
         self.wifi = wifi or WifiClient()
         self.booted_at = time.time()
 
@@ -128,6 +130,8 @@ class Handler(BaseHTTPRequestHandler):
         routes = {
             ("GET", "/"): self.idle_page,
             ("GET", "/idle"): self.idle_page,
+            ("GET", "/stage"): self.stage_page,
+            ("GET", "/stage/state"): self.stage_state,
             ("GET", f"{PREFIX}/info"): self.get_info,
             ("GET", f"{PREFIX}/status"): self.get_status,
             ("GET", f"{PREFIX}/playlist"): self.get_playlist,
@@ -237,6 +241,30 @@ class Handler(BaseHTTPRequestHandler):
     def _wifi(self, method: str, path: str, body: dict | None = None):
         status, data = self.agent.wifi.call(method, path, body)
         self._json(data, HTTPStatus(status))
+
+    def stage_page(self):
+        if self.agent.stage is None:
+            raise ApiError(HTTPStatus.NOT_FOUND, "preload is off")
+        self._html(STAGE_PAGE)
+
+    def stage_state(self):
+        if self.agent.stage is None:
+            raise ApiError(HTTPStatus.NOT_FOUND, "preload is off")
+        query = parse_qs(urlparse(self.path).query)
+        try:
+            since = int(query.get("since", ["-1"])[0])
+        except ValueError:
+            since = -1
+        self._json(self.agent.stage.wait(since))
+
+    def _html(self, text: str):
+        body = text.encode()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def idle_page(self):
         info = self.agent.info()
