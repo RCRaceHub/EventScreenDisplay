@@ -31,6 +31,11 @@ class Config:
     default_duration: int = 30
     # Hard floor so a bad playlist can't thrash the Pi.
     min_duration: int = 5
+    # Load the next page out of sight before switching, so switches are
+    # instant (see stage.py). Off = navigate the browser to each page.
+    preload: bool = True
+    # How many seconds before a switch to start loading the next page.
+    preload_ahead: int = 10
     # Wi-Fi fallback hotspot (eventscreen-wifi service): when no known
     # network has been connected for wifi_fallback_after seconds, the Pi
     # starts its own hotspot with a setup page for entering new Wi-Fi.

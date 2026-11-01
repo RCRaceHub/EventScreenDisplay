@@ -14,6 +14,9 @@ to every command that changes something (the ones with `-X`).
   exactly.
 - A screen only needs power and HDMI. Switch it on and it comes back to its
   last playlist by itself; just pull the power to switch it off.
+- Pages switch instantly: each page is loaded out of sight about 10
+  seconds before its turn. Sites that don't allow this (most big public
+  sites) still work, but show a short loading gap when they come up.
 - If the Wi-Fi or the timing server goes down, the screen shows an error
   page and then reloads by itself within about 10 seconds of the server
   being reachable again.
@@ -190,6 +193,17 @@ Check the URL works from a laptop on the same network. When the page's
 server comes back, `reload` it (or wait for it to come round again).
 
 **Changes to a page aren't showing.** `reload` the screen.
+
+**RCTC runs in Docker and can't find the screens.** Containers on Docker's
+normal (bridge) network can't see mDNS, so they can't discover screens or
+look up `screen-01.local`. Docker Desktop on Windows and Mac has the same
+problem even with host networking. Add screens by IP instead,
+`http://192.168.1.50:8080` (find it with `hostname -I` on the Pi), and give
+each Pi a DHCP reservation on the router so its IP doesn't change. On a
+Linux Docker host, `network_mode: host` makes discovery work. The other
+direction matters too: the board URLs you send to a screen must use the
+Docker host's LAN IP and the published port, never `localhost` or the
+container's name, and the host's firewall must let the Pi in.
 
 **Can someone else change my screens?** Anyone on the same network can,
 unless a token was set during install (`--token`). Ask whoever set up the

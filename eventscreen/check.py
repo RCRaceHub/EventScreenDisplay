@@ -91,6 +91,10 @@ def check_browser(p: Probe) -> list[Result]:
     missing = [b for b in need if not p.which(b)]
     if p.cfg.browser == "chromium" and not (p.which("chromium-browser") or p.which("chromium")):
         missing.append("chromium-browser")
+    # WebKit's page renderer needs OpenGL ES even though nothing links cog to
+    # it directly; without it every page crashes ("renderer process crashed").
+    if p.cfg.browser == "cog" and not (p.glob("/usr/lib/*/libGLESv2.so.2*") or p.glob("/usr/lib/libGLESv2.so.2*")):
+        missing.append("libgles2")
     if missing:
         return [Result("browser", FAIL, f"{p.cfg.browser}: missing {', '.join(missing)}",
                        f"sudo eventscreen-setup --browser {p.cfg.browser}")]

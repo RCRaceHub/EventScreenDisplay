@@ -37,6 +37,7 @@ the screens on the LAN and tells each one what to show.
 | Feature | How |
 | --- | --- |
 | Playlist of URLs, each with its own dwell time | `PUT /api/v1/playlist` |
+| Instant page switches | The next page loads out of sight 10 s before its turn, then swaps in |
 | A single URL stays up forever without reloading | One-item playlists never re-navigate, so the board's live connection stays open |
 | Next / previous / jump to item | `POST /api/v1/control/{next,previous,goto}` |
 | Pause and resume the rotation | `POST /api/v1/control/{pause,resume}` |
@@ -66,6 +67,7 @@ nothing to `pip install` and it starts quickly on a Pi Zero.
   and when to move on. It wakes every two seconds to check the browser is
   healthy, and immediately when a command arrives.
 - `browsers.py`: drivers that start the kiosk browser and point it at a URL.
+- `stage.py`: the two-frame stage page that makes switches instant.
 - `api.py`: the HTTP API and the idle page.
 - `playlist.py`: validation and atomic save/load of the playlist.
 - `config.py`: reads `/etc/eventscreen/config.toml`.
@@ -90,15 +92,37 @@ Changing page reuses the running browser: Cog is told over D-Bus with
 `cogctl open`, and Chromium through its local DevTools HTTP endpoints. This
 is faster than restarting the browser and avoids a black flash.
 
-### Why navigate instead of keeping every page loaded
+### Page switching: preload one page ahead
 
-An alternative design keeps every playlist page open in hidden frames and
-just swaps which one is visible. That makes switching instant and keeps
-every board live, but it multiplies memory use by the number of pages and
-breaks on any site that refuses to be framed. On a 512 MB Pi that is the
-wrong trade, so the agent loads one page at a time. Each page loads fresh
-when it comes round, which also clears any slow memory leak in a
-long-running board.
+Loading a page from scratch on a Pi takes a few seconds: fetch it, start
+its JavaScript, wait for its data. Navigating the browser at switch time
+shows that as a blank or half-drawn gap.
+
+So by default the browser never navigates between playlist pages. It stays
+on a local **stage** page (`/stage`, served by the agent) with two
+full-screen iframes. `preload_ahead` seconds (10) before a switch, the
+player tells the stage which page is next, and the stage loads it in the
+hidden frame. At switch time it just swaps which frame is visible, then
+blanks the old one to free its memory. The stage learns what to show by
+long-polling `/stage/state`.
+
+- **Bounded memory.** At most two pages are loaded at once, and only for
+  the last few seconds of each dwell. Keeping every playlist page open
+  would multiply memory by the number of pages, which is the wrong trade on
+  a 512 MB Pi.
+- **Live boards stay live.** A single-item playlist is shown once and never
+  reloaded, as before. Each page in a rotation still loads fresh when it
+  comes round, which also clears any slow memory leak in a long-running board.
+- **Sites that refuse framing.** Before framing a URL, the agent checks its
+  `X-Frame-Options` and CSP `frame-ancestors` headers (cached for 10
+  minutes). Pages that forbid framing, which includes most big public sites,
+  are shown the old way by navigating the browser to them, with the loading
+  gap. RCTC boards on your own server don't send those headers.
+- **Not preloaded** (a `show`, `goto` or `next` from the API): the new page
+  loads behind the current one and swaps in when it has loaded, or after 10
+  seconds at most, so there's still no blank gap.
+- `preload = false` in the config turns all of this off and navigates the
+  browser to each page directly.
 
 ### Unattended operation
 

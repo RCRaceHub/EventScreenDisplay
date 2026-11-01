@@ -13,6 +13,7 @@ from . import __version__, browsers, config
 from .api import Agent, make_server
 from .player import Player
 from .playlist import Store
+from .stage import Stage, StageBrowser
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -37,8 +38,14 @@ def main(argv: list[str] | None = None) -> int:
         cfg.state_dir = args.state_dir
 
     browser = browsers.create(cfg.browser, cfg.browser_args)
-    player = Player(browser, Store(cfg.playlist_path), idle_url=f"http://127.0.0.1:{cfg.port}/idle")
-    agent = Agent(cfg, player)
+    base = f"http://127.0.0.1:{cfg.port}"
+    stage = None
+    if cfg.preload:
+        stage = Stage()
+        browser = StageBrowser(browser, stage, f"{base}/stage")
+    player = Player(browser, Store(cfg.playlist_path), idle_url=f"{base}/idle",
+                    preload_ahead=cfg.preload_ahead)
+    agent = Agent(cfg, player, stage=stage)
     server = make_server(agent)
 
     stopping = threading.Event()

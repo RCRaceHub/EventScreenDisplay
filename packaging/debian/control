@@ -6,7 +6,7 @@ Section: web
 Priority: optional
 Homepage: https://github.com/RCRaceHub/EventScreenDisplay
 Depends: python3 (>= 3.11), dbus, avahi-daemon, adduser, network-manager, dnsmasq-base
-Recommends: cog, libnss-mdns, fonts-dejavu-core
+Recommends: cog, libgles2, libnss-mdns, fonts-dejavu-core
 Suggests: cage, seatd, chromium-browser
 Installed-Size: @SIZE@
 Description: Lightweight web page viewer for Raspberry Pi event screens
