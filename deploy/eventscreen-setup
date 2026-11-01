@@ -56,7 +56,8 @@ set_conf() {  # set_conf key 'toml value'
 
 if [[ -n "$BROWSER" ]]; then
   case "$BROWSER" in
-    cog)      PKGS=(cog) ;;
+    # libgles2: WebKit's renderer crashes on every page without it.
+    cog)      PKGS=(cog libgles2) ;;
     chromium) PKGS=(cage seatd chromium-browser) ;;
     dummy)    PKGS=() ;;
     *) echo "unknown browser: $BROWSER" >&2; exit 1 ;;

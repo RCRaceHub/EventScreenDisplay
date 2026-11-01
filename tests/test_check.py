@@ -1,3 +1,4 @@
+import fnmatch
 import io
 import unittest
 from contextlib import redirect_stdout
@@ -25,6 +26,7 @@ class FakeProbe(check.Probe):
             "/boot/firmware/cmdline.txt": "console=tty1 rootwait video=HDMI-A-1:1920x1080@60D consoleblank=0\n",
             "/etc/avahi/services/eventscreen.service": "<service-group/>",
             "/etc/hostname": "screen-01\n",
+            "/usr/lib/aarch64-linux-gnu/libGLESv2.so.2": "",
         }
         self.binaries = {"cog", "cogctl", "nmcli"}
         self.nmcli = "wifi:connected:wifi-Venue\nloopback:connected (externally):lo\n"
@@ -47,7 +49,7 @@ class FakeProbe(check.Probe):
         return self.files.get(path)
 
     def glob(self, pattern):
-        return [p for p in self.files if p.startswith("/sys/class/drm/")]
+        return sorted(p for p in self.files if fnmatch.fnmatch(p, pattern))
 
     def api_status(self):
         if self.status is None:
@@ -91,6 +93,14 @@ class TestCheck(unittest.TestCase):
         p = FakeProbe()
         p.binaries.discard("cog")
         self.assertEqual(levels(p)["browser"], check.FAIL)
+
+    def test_cog_without_gles(self):
+        # Pi OS Lite installs cog without it, and every page then crashes.
+        p = FakeProbe()
+        del p.files["/usr/lib/aarch64-linux-gnu/libGLESv2.so.2"]
+        results = {r.name: r for r in check.run_checks(p)}
+        self.assertEqual(results["browser"].level, check.FAIL)
+        self.assertIn("libgles2", results["browser"].detail)
 
     def test_page_server_unreachable(self):
         p = FakeProbe()
