@@ -191,6 +191,17 @@ server comes back, `reload` it (or wait for it to come round again).
 
 **Changes to a page aren't showing.** `reload` the screen.
 
+**RCTC runs in Docker and can't find the screens.** Containers on Docker's
+normal (bridge) network can't see mDNS, so they can't discover screens or
+look up `screen-01.local`. Docker Desktop on Windows and Mac has the same
+problem even with host networking. Add screens by IP instead,
+`http://192.168.1.50:8080` (find it with `hostname -I` on the Pi), and give
+each Pi a DHCP reservation on the router so its IP doesn't change. On a
+Linux Docker host, `network_mode: host` makes discovery work. The other
+direction matters too: the board URLs you send to a screen must use the
+Docker host's LAN IP and the published port, never `localhost` or the
+container's name, and the host's firewall must let the Pi in.
+
 **Can someone else change my screens?** Anyone on the same network can,
 unless a token was set during install (`--token`). Ask whoever set up the
 screens.
