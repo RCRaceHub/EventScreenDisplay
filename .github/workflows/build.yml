@@ -8,96 +8,157 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # to attach the .deb to a release
+  contents: write  # to attach the .debs to a release
 
 jobs:
   test:
-    name: Tests (Python ${{ matrix.python }})
+    name: Go tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Unit, API and script tests (race detector on)
+        shell: bash
+        run: go test -race -count=1 -cover -coverprofile=coverage.out -v ./... 2>&1 | tee test.log
+      - name: Test summary
+        if: always()
+        shell: bash
+        run: |
+          total=$(go tool cover -func=coverage.out | tail -n 1 | awk '{print $NF}')
+          {
+            echo "### Tests"
+            echo
+            echo "$(grep -c -- '--- PASS' test.log) passed, $(grep -c -- '--- FAIL' test.log) failed, $(grep -c -- '--- SKIP' test.log) skipped. Total coverage $total."
+            echo
+            echo '| Package | Coverage |'
+            echo '|---|---|'
+            grep -E '^ok ' test.log | sed -E 's|^ok +github.com/RCRaceHub/EventScreenDisplay/([^ \t]+).*coverage: ([0-9.]+%).*|\| \1 \| \2 \||'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+
+  lint:
+    name: Lint (gofmt, vet, shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make lint
+
+  deb:
+    name: Package (${{ matrix.arch }})
+    needs: [test, lint]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # 3.11 is Raspberry Pi OS Bookworm, the oldest supported; 3.13 is Trixie.
-        python: ["3.11", "3.13"]
+        # arm64: 64-bit Pi OS (Pi Zero 2 W, Pi 3 and later). armhf: 32-bit
+        # Pi OS. amd64: tried out on a PC, and installed below as a check.
+        arch: [arm64, armhf, amd64]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: ${{ matrix.python }}
-      - name: Unit and API tests
-        run: python -m unittest discover -v -s tests -t .
-
-  lint:
-    name: Shell scripts
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: shellcheck
-        run: |
-          shellcheck -S warning deploy/install.sh deploy/eventscreen-setup deploy/eventscreen-check packaging/build-deb.sh
-          shellcheck -S warning -s sh packaging/debian/postinst packaging/debian/prerm packaging/debian/postrm
-
-  deb:
-    name: Package
-    needs: [test, lint]
-    runs-on: ubuntu-latest
-    env:
-      # Optional, lets a release publish to RCRaceHub/apt immediately.
-      APT_DISPATCH_TOKEN: ${{ secrets.APT_DISPATCH_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
+          go-version-file: go.mod
 
       - name: Work out the version
         shell: bash
         run: |
-          # A v* tag sets the version (v0.5.1 -> 0.5.1), so releasing a patch
-          # is just pushing a tag. Other builds use __version__ from the code.
+          # A v* tag sets the version (v0.7.1 -> 0.7.1), so releasing is just
+          # pushing a tag. Other builds use the version in the code.
           if [[ $GITHUB_REF == refs/tags/v* ]]; then
             version=${GITHUB_REF_NAME#v}
             if ! [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.~][0-9A-Za-z.]+)?$ ]]; then
-              echo "::error::tag $GITHUB_REF_NAME isn't a version; use vMAJOR.MINOR.PATCH, e.g. v0.5.1 or v0.6.0-rc1"
+              echo "::error::tag $GITHUB_REF_NAME isn't a version; use vMAJOR.MINOR.PATCH, e.g. v0.7.1 or v0.8.0-rc1"
               exit 1
             fi
-            # v0.6.0-rc1 -> 0.6.0~rc1, which Debian sorts before 0.6.0.
+            # v0.8.0-rc1 -> 0.8.0~rc1, which Debian sorts before 0.8.0.
             version=${version//-/\~}
           else
-            version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' eventscreen/__init__.py)
+            version=$(sed -n 's/^var Version = "\(.*\)"/\1/p' internal/version/version.go)
           fi
           echo "Building version $version"
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build .deb
-        run: packaging/build-deb.sh "$VERSION"
+        run: make deb-${{ matrix.arch }} VERSION="$VERSION"
 
-      - name: Install it
+      - name: Check the binary runs
         run: |
           sudo apt-get update
+          sudo apt-get install -y qemu-user-static
+          # binfmt runs the ARM binaries through qemu.
+          out=$(dist/bin/eventscreen-linux-${{ matrix.arch }} version)
+          echo "eventscreen version: $out"
+          test "$out" = "$VERSION"
+          test "$(dpkg-deb -f dist/eventscreen_*_${{ matrix.arch }}.deb Architecture)" = "${{ matrix.arch }}"
+
+      - name: Install it
+        if: matrix.arch == 'amd64'
+        run: |
           # avahi-daemon etc. come from Ubuntu here; cog is only Recommended.
-          sudo apt-get install -y ./dist/eventscreen_*_all.deb
+          sudo apt-get install -y ./dist/eventscreen_*_amd64.deb
           test -x /usr/sbin/eventscreen-setup
+          test -f /usr/lib/systemd/system/eventscreen-wifi.service
           # Runs end to end; on a CI runner most checks fail (no Pi), so ignore the exit code.
           sudo eventscreen-check || true
-          test -f /usr/lib/systemd/system/eventscreen-wifi.service
-          installed=$(PYTHONPATH=/usr/lib/eventscreen python3 -c "import eventscreen; print(eventscreen.__version__)")
-          echo "installed $installed"
-          test "$installed" = "$VERSION"
+          test "$(eventscreen version)" = "$VERSION"
           sudo apt-get purge -y eventscreen
 
       - uses: actions/upload-artifact@v4
         with:
-          name: eventscreen-deb
+          name: eventscreen-deb-${{ matrix.arch }}
           path: dist/*.deb
 
+  docker:
+    name: Docker image
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build for every architecture
+        run: docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v6 .
+      - name: Smoke test
+        run: |
+          docker buildx build --load -t eventscreen:ci .
+          docker run -d --name es -p 8080:8080 eventscreen:ci
+          for _ in $(seq 20); do curl -fsS localhost:8080/api/v1/info && break; sleep 0.5; done
+          curl -fsS -X PUT localhost:8080/api/v1/playlist -d '{"items":["http://example.com/"]}'
+          curl -fsS localhost:8080/api/v1/status | grep -q '"state":"playing"'
+          docker logs es
+          docker rm -f es
+          docker image ls eventscreen:ci
+
+  release:
+    name: Attach to release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [deb, docker]
+    runs-on: ubuntu-latest
+    env:
+      # Optional, lets a release publish to RCRaceHub/apt immediately.
+      APT_DISPATCH_TOKEN: ${{ secrets.APT_DISPATCH_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: eventscreen-deb-*
+          merge-multiple: true
+          path: dist
+
       - name: Attach to GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.deb --title "$GITHUB_REF_NAME" --generate-notes \
-            || gh release upload "$GITHUB_REF_NAME" dist/*.deb --clobber
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" dist/*.deb --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" dist/*.deb --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Tell the apt repository about the release
-        if: startsWith(github.ref, 'refs/tags/v') && env.APT_DISPATCH_TOKEN != ''
+        if: env.APT_DISPATCH_TOKEN != ''
         run: |
           # Optional: without this secret the apt repo picks the release up
           # on its hourly run instead.

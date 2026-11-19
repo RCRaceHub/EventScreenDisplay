@@ -1,11 +1,11 @@
 Package: eventscreen
 Version: @VERSION@
-Architecture: all
+Architecture: @ARCH@
 Maintainer: @MAINTAINER@
 Section: web
 Priority: optional
 Homepage: https://github.com/RCRaceHub/EventScreenDisplay
-Depends: python3 (>= 3.11), dbus, avahi-daemon, adduser, network-manager, dnsmasq-base
+Depends: dbus, avahi-daemon, adduser, network-manager, dnsmasq-base
 Recommends: cog, libgles2, libnss-mdns, fonts-dejavu-core
 Suggests: cage, seatd, chromium-browser
 Installed-Size: @SIZE@
@@ -16,3 +16,4 @@ Description: Lightweight web page viewer for Raspberry Pi event screens
  central manager can find it. Runs unattended and recovers by itself from
  Wi-Fi drops, server restarts and browser crashes. If it can't find a
  known Wi-Fi network it starts a setup hotspot so a phone can pick one.
+ The agent is a single static binary with no runtime dependencies.
