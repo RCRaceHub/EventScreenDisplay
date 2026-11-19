@@ -60,21 +60,31 @@ the screens on the LAN and tells each one what to show.
 
 ## Components
 
-### Viewer agent (`eventscreen/`)
+### Viewer agent (`cmd/eventscreen`, `internal/`)
 
-A single Python 3 program using only the standard library, so there is
-nothing to `pip install` and it starts quickly on a Pi Zero.
+A single static Go binary, so there is no runtime to install and it starts
+in a fraction of a second on a Pi Zero. It uses only the Go standard
+library apart from a TOML parser. One binary does every job, picked by a
+subcommand: `run` (the agent), `wifi` (the root Wi-Fi service), `avahi`
+(writes the mDNS file) and `check` (the health check).
 
-- `player.py`: a background thread that works out what should be on screen
-  and when to move on. It wakes every two seconds to check the browser is
-  healthy, and immediately when a command arrives.
-- `browsers.py`: drivers that start the kiosk browser and point it at a URL.
-- `stage.py`: the two-frame stage page that makes switches instant.
-- `api.py`: the HTTP API and the idle page.
-- `playlist.py`: validation and atomic save/load of the playlist.
-- `config.py`: reads `/etc/eventscreen/config.toml`.
-- `wifi.py`: the Wi-Fi fallback hotspot, run as its own service (see
-  below).
+- `player`: a goroutine that works out what should be on screen and when
+  to move on. It wakes every two seconds to check the browser is healthy,
+  and immediately when a command arrives. A second goroutine checks the
+  page's server can be reached.
+- `browser`: drivers that start the kiosk browser and point it at a URL.
+- `stage`: the two-frame stage page that makes switches instant.
+- `messages`: full-screen event messages and the banner.
+- `api`: the HTTP API, the idle, stage and message pages (embedded in the
+  binary), and the client for the Wi-Fi service's socket.
+- `playlist`: validation and atomic save/load of the playlist.
+- `config`: reads `/etc/eventscreen/config.toml`.
+- `wifi`: the Wi-Fi fallback hotspot, run as its own service (see below).
+- `avahi`, `check`: the mDNS file and `eventscreen-check`.
+
+Go was chosen over the original Python to make the screen as small as
+possible: one file, no interpreter, low memory use, and the same code built
+for every Pi.
 
 ### Browser: Cog (WPE WebKit) by default
 
@@ -234,7 +244,7 @@ advertise 4K first, which a Pi Zero 2 W can't render smoothly.
 
 `eventscreen-setup` sets the hostname (for example `screen-01`), and the
 service writes an Avahi service file from the config each time it starts
-(`python3 -m eventscreen.avahi`, run as root by `ExecStartPre`), so the
+(`eventscreen avahi`, run as root by `ExecStartPre`), so the
 advertised port and id can't drift from the config. Every screen then
 answers as `screen-01.local` and advertises:
 
@@ -264,13 +274,17 @@ agent restarts the browser if it dies.
 
 ### Packaging
 
-The agent ships as one Debian package, `eventscreen_<version>_all.deb`.
-Because it's pure Python there's nothing to compile, so the same package
-works on every Pi model and on 32- or 64-bit Raspberry Pi OS.
+The agent ships as a Debian package per architecture,
+`eventscreen_<version>_<arch>.deb`: `arm64` for 64-bit Raspberry Pi OS,
+`armhf` for 32-bit (built for ARMv6, so it runs on every Pi model) and
+`amd64` for trying it on a PC. The binary is static, so the package needs
+nothing beyond the system services it uses (D-Bus, Avahi, NetworkManager).
 
-- `packaging/build-deb.sh` assembles the package with plain `dpkg-deb`, so
-  it builds anywhere (a laptop, a Pi, CI) without the full Debian toolchain.
-  The version comes from `eventscreen/__init__.py`.
+- `packaging/build-deb.sh` cross-compiles the binary and assembles the
+  package with plain `dpkg-deb`, so it builds anywhere with Go (a laptop, a
+  Pi, CI) without the full Debian toolchain. The `Makefile` has a target per
+  architecture. The version comes from the git tag in CI, stamped into the
+  binary at link time, and from `internal/version/version.go` otherwise.
 - The package holds everything that's the same on every Pi: code, services,
   default config (a conffile, so upgrades keep local edits), Wi-Fi power-save
   and watchdog settings. `postinst` creates the `eventscreen` user and starts
@@ -278,9 +292,13 @@ works on every Pi model and on 32- or 64-bit Raspberry Pi OS.
 - Anything per-Pi or touching boot settings (hostname, HDMI mode, console)
   lives in `eventscreen-setup`, because a package shouldn't change those
   silently on install.
-- The **Build** GitHub Action runs the tests, shellchecks the scripts, builds
-  the package and test-installs it on every push and PR. Pushing a `v*` tag
-  attaches the `.deb` to a GitHub release. See [releasing.md](releasing.md).
+- The **Build** GitHub Action runs the tests, lints the code and scripts,
+  builds each package (and runs each binary), test-installs the `amd64` one
+  and builds the Docker image on every push and PR. Pushing a `v*` tag
+  attaches the `.deb`s to a GitHub release. See [releasing.md](releasing.md).
+- A minimal Docker image (scratch plus the binary, dummy browser) runs the
+  agent headless for testing a manager without a Pi. It isn't for driving
+  screens.
 - A shared apt repository for this and other RCRaceHub packages is designed
   in [apt-repository.md](apt-repository.md).
 
