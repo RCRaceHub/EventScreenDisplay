@@ -1,0 +1,96 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>eventscreen</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000}
+iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;visibility:hidden}
+iframe.on{visibility:visible}
+#banner{position:absolute;left:0;right:0;bottom:0;z-index:10;display:none;overflow:hidden;white-space:nowrap;
+  font-family:"DejaVu Sans",sans-serif;font-weight:700;font-size:4.2vh;line-height:9vh;height:9vh;
+  color:#fff;background:rgba(10,40,80,.94);border-top:.5vh solid #4aa3ff;box-shadow:0 -1vh 3vh rgba(0,0,0,.5)}
+#banner.warning{background:rgba(90,60,0,.95);border-top-color:#ffc107}
+#banner.urgent{background:rgba(120,10,10,.96);border-top-color:#ff4d4d}
+#banner span{display:inline-block;padding:0 3vw}
+#banner.scroll span{padding-left:100%;animation:scroll linear infinite}
+@keyframes scroll{from{transform:translateX(0)}to{transform:translateX(-100%)}}
+</style></head><body>
+<div id="banner"><span></span></div>
+<iframe id="a" allow="autoplay; fullscreen"></iframe><iframe id="b" allow="autoplay; fullscreen"></iframe>
+<script>
+// Two frames: one showing, one loading the next page out of sight.
+var frames = [document.getElementById("a"), document.getElementById("b")];
+var shown = 0, seq = -1, reloads = null, swapTimer = null;
+function url(f) { return f.dataset.url || ""; }
+function load(f, u) { f.dataset.url = u; f.dataset.ready = ""; f.src = u; }
+frames.forEach(function (f) { f.addEventListener("load", function () { f.dataset.ready = "1"; }); });
+function swapTo(i) {
+  clearTimeout(swapTimer); swapTimer = null;
+  if (i === shown && frames[i].className === "on") return;
+  var old = frames[shown];
+  frames[i].className = "on"; old.className = ""; shown = i;
+  // Free the old page's memory once it's out of sight.
+  setTimeout(function () { if (old !== frames[shown] && !old.dataset.keep) load(old, "about:blank"); }, 500);
+}
+function apply(s) {
+  var other = 1 - shown;
+  if (s.active && url(frames[shown]) !== s.active) {
+    if (url(frames[other]) === s.active) {
+      // Preloaded: swap now if it has loaded, else as soon as it does (max 10 s).
+      if (frames[other].dataset.ready) swapTo(other);
+      else if (!swapTimer) {
+        var f = frames[other];
+        f.addEventListener("load", function h() { f.removeEventListener("load", h); if (url(f) === s.active) swapTo(other); });
+        swapTimer = setTimeout(function () { swapTo(other); }, 10000);
+      }
+    } else {
+      // Not preloaded: load it behind the current page, then swap.
+      load(frames[other], s.active);
+      var g = frames[other];
+      g.addEventListener("load", function h() { g.removeEventListener("load", h); if (url(g) === s.active) swapTo(other); });
+      swapTimer = setTimeout(function () { swapTo(other); }, 10000);
+    }
+  } else if (s.active && frames[shown].className !== "on") {
+    frames[shown].className = "on";
+  }
+  other = 1 - shown;
+  if (s.next && url(frames[shown]) === s.active && url(frames[other]) !== s.next) load(frames[other], s.next);
+  frames[other].dataset.keep = s.next ? "1" : "";
+  if (reloads !== null && s.reloads !== reloads && url(frames[shown])) load(frames[shown], url(frames[shown]));
+  reloads = s.reloads;
+  showBanner(s.banner, s.now);
+}
+var bannerTimer = null, bannerKey = "";
+function showBanner(b, now) {
+  var el = document.getElementById("banner"), span = el.firstChild;
+  clearTimeout(bannerTimer);
+  if (!b) { el.style.display = "none"; bannerKey = ""; return; }
+  var key = b.text + "|" + b.level;
+  if (key !== bannerKey) {
+    bannerKey = key;
+    span.textContent = b.text;
+    el.className = b.level;
+    el.style.display = "block";
+    span.style.animationDuration = "";
+    // Too long to fit: scroll it, at a steady reading speed.
+    if (span.scrollWidth > el.clientWidth) {
+      el.className = b.level + " scroll";
+      span.style.animationDuration = Math.max(8, (span.scrollWidth + el.clientWidth) / (el.clientWidth / 9)) + "s";
+    }
+  }
+  el.style.display = "block";
+  // Hide it on time even if the agent doesn't say so.
+  if (b.until) bannerTimer = setTimeout(function () { el.style.display = "none"; bannerKey = ""; },
+                                        Math.max(0, (b.until - now) * 1000));
+}
+function poll() {
+  var x = new XMLHttpRequest();
+  x.open("GET", "/stage/state?since=" + seq);
+  x.timeout = 35000;
+  x.onload = function () {
+    try { var s = JSON.parse(x.responseText); seq = s.seq; apply(s); } catch (e) {}
+    setTimeout(poll, 50);
+  };
+  x.onerror = x.ontimeout = function () { setTimeout(poll, 2000); };
+  x.send();
+}
+poll();
+</script></body></html>

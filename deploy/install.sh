@@ -1,7 +1,8 @@
 #!/bin/bash
 # Install the EventScreenDisplay viewer from a git checkout on Raspberry Pi OS
-# Lite (Bookworm). Builds the eventscreen .deb, installs it with apt, then runs
-# eventscreen-setup with any options given:
+# Lite. Builds the eventscreen .deb for this Pi (needs Go: sudo apt install
+# golang-go, or build it on another machine with "make deb-arm64"), installs
+# it with apt, then runs eventscreen-setup with any options given:
 #
 #   sudo ./deploy/install.sh [--hostname screen-01] [--browser cog|chromium]
 #                            [--name "Pit lane board"] [--port 8080] [--token SECRET]
@@ -13,7 +14,7 @@
 set -euo pipefail
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then
-  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 if [[ $EUID -ne 0 ]]; then
@@ -33,9 +34,17 @@ if [[ -d /opt/eventscreen && ! -e /usr/lib/eventscreen ]]; then
   systemctl daemon-reload
 fi
 
-echo "==> Building the package"
-"$SRC/packaging/build-deb.sh"
-DEB=$(ls -t "$SRC"/dist/eventscreen_*_all.deb | head -n1)
+ARCH=$(dpkg --print-architecture)
+if ! command -v go >/dev/null; then
+  echo "Go isn't installed, so the package can't be built here. Either" >&2
+  echo "  sudo apt install golang-go   and run this again, or" >&2
+  echo "  download eventscreen_<version>_${ARCH}.deb from the GitHub releases and" >&2
+  echo "  sudo apt install ./eventscreen_*_${ARCH}.deb && sudo eventscreen-setup" >&2
+  exit 1
+fi
+echo "==> Building the package for $ARCH"
+ARCH=$ARCH "$SRC/packaging/build-deb.sh"
+DEB=$(ls -t "$SRC"/dist/eventscreen_*_"$ARCH".deb | head -n1)
 
 echo "==> Installing $DEB"
 apt-get update

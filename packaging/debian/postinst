@@ -13,6 +13,9 @@ if [ "$1" = configure ]; then
         fi
     done
     install -d -o eventscreen -g eventscreen -m 0755 /var/lib/eventscreen
+    # Releases before 0.7.0 were Python, under /usr/lib/eventscreen. dpkg
+    # removes their files; this clears the __pycache__ left beside them.
+    rm -rf /usr/lib/eventscreen
     # The config may hold the API token.
     chgrp eventscreen /etc/eventscreen/config.toml
     chmod 0640 /etc/eventscreen/config.toml

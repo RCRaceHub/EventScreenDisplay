@@ -23,7 +23,7 @@ writing the SD card and downloading packages.
 ## 1. Write the SD card
 
 1. Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/).
-2. Choose **Raspberry Pi OS Lite (64-bit)** (Bookworm). For a Pi Zero 2 W the
+2. Choose **Raspberry Pi OS Lite (64-bit)** (Trixie, or Bookworm). For a Pi Zero 2 W the
    64-bit Lite image is fine; no desktop is needed.
 3. Open the settings (the cog, or Ctrl+Shift+X) and set:
    - **Hostname**: the screen's name, for example `screen-01`. Use a
@@ -43,14 +43,18 @@ same network:
 ssh <you>@screen-01.local
 # Download the latest .deb from the GitHub releases page:
 #   https://github.com/RCRaceHub/EventScreenDisplay/releases/latest
-wget https://github.com/RCRaceHub/EventScreenDisplay/releases/download/v0.2.0/eventscreen_0.2.0_all.deb
+# arm64 on 64-bit Raspberry Pi OS, armhf on 32-bit:
+dpkg --print-architecture
+wget https://github.com/RCRaceHub/EventScreenDisplay/releases/download/v0.7.0/eventscreen_0.7.0_arm64.deb
 sudo apt-get update
-sudo apt install ./eventscreen_0.2.0_all.deb
+sudo apt install ./eventscreen_0.7.0_arm64.deb
 sudo eventscreen-setup --hostname screen-01 --name "Pit lane board"
 sudo reboot
 ```
 
-Change `0.2.0` to the latest version on the releases page. Once the RCRaceHub
+Change `0.7.0` to the latest version on the releases page, and `arm64` to
+what `dpkg --print-architecture` printed. The 64-bit Raspberry Pi OS Lite
+(the Imager's default for a Pi Zero 2 W and Pi 3) is `arm64`. Once the RCRaceHub
 apt repository is set up (see [apt-repository.md](apt-repository.md)) this
 becomes `sudo apt install eventscreen`.
 
@@ -62,10 +66,14 @@ playlist every time it's switched on.
 ### Installing from a git checkout instead
 
 For testing unreleased changes, `deploy/install.sh` builds the package from
-the source, installs it and runs `eventscreen-setup` with the same options:
+the source, installs it and runs `eventscreen-setup` with the same options.
+It needs Go 1.24 or later on the Pi (`golang-go` on Trixie; Bookworm's is too
+old). Building is slow on a Pi Zero, so it's usually quicker to run
+`make deb-arm64` on a laptop and copy the `.deb` over, or to take the
+`eventscreen-deb-arm64` artifact from the branch's CI run.
 
 ```bash
-sudo apt-get install -y git
+sudo apt-get install -y git golang-go
 git clone https://github.com/RCRaceHub/EventScreenDisplay.git
 cd EventScreenDisplay
 sudo ./deploy/install.sh --hostname screen-01 --name "Pit lane board"
@@ -89,10 +97,10 @@ leave out stay as they are.
 
 **The package** (`apt install`) does everything that is the same on every Pi:
 
-1. Pulls in `python3`, `dbus`, `avahi-daemon`, `network-manager`,
+1. Pulls in `dbus`, `avahi-daemon`, `network-manager`,
    `dnsmasq-base` and, as recommended packages, the `cog` browser,
    `libgles2` (which Cog needs to draw pages), `libnss-mdns` and a font.
-2. Installs the agent to `/usr/lib/eventscreen` and the `eventscreen`
+2. Installs the agent, a single program at `/usr/bin/eventscreen`, and the `eventscreen`
    systemd service, then enables and starts it. Also installs and starts
    `eventscreen-wifi`, which brings up a setup hotspot when the Pi can't
    find a known Wi-Fi network (see [Changing the Wi-Fi network](#changing-the-wi-fi-network)).
@@ -191,12 +199,18 @@ while the screen has no network. Plugging in Ethernet also ends it.
 Download the new `.deb` from the releases page and install it over the top:
 
 ```bash
-sudo apt install ./eventscreen_0.3.0_all.deb
+sudo apt install ./eventscreen_0.7.1_arm64.deb
 ```
 
 Your config and the current playlist are kept, and the service restarts on
 the new version. There's no need to run `eventscreen-setup` again. From a git
 checkout, `git pull && sudo ./deploy/install.sh` does the same.
+
+**Upgrading from 0.6.x or earlier** (the Python versions, package
+architecture `all`): install the new `.deb` for your Pi's architecture in the
+same way. apt replaces the old package, keeps the config, playlist and any
+message or banner, and removes the old `/usr/lib/eventscreen`. Python is no
+longer needed; `sudo apt autoremove` offers to remove it if nothing else uses it.
 
 **Upgrading from 0.1.0** (installed by the old script into `/opt`): run
 `git pull && sudo ./deploy/install.sh` once. It removes the old files and
@@ -206,11 +220,12 @@ installs the package, keeping your config and playlist.
 
 | Path | What |
 | --- | --- |
-| `/usr/lib/eventscreen/` | The agent code |
+| `/usr/bin/eventscreen` | The agent (also runs the Wi-Fi service, mDNS file and check) |
 | `/usr/sbin/eventscreen-setup` | Per-Pi setup command |
 | `/usr/sbin/eventscreen-check` | Health check (see [Troubleshooting](#troubleshooting)) |
 | `/etc/eventscreen/config.toml` | Configuration (see comments inside) |
 | `/var/lib/eventscreen/playlist.json` | The saved playlist |
+| `/var/lib/eventscreen/messages.json` | The current event message and banner |
 | `/usr/lib/systemd/system/eventscreen.service` | The service |
 | `/usr/lib/systemd/system/eventscreen-wifi.service` | Wi-Fi fallback hotspot service |
 | `/etc/NetworkManager/dnsmasq-shared.d/eventscreen-captive.conf` | Sends phones on the setup hotspot to the setup page |
@@ -284,7 +299,7 @@ Live logs: `journalctl -u eventscreen -f`. For more detail, run
 ```ini
 [Service]
 ExecStart=
-ExecStart=/usr/bin/dbus-run-session -- /usr/bin/python3 -m eventscreen --config /etc/eventscreen/config.toml -v
+ExecStart=/usr/bin/dbus-run-session -- /usr/bin/eventscreen run --config /etc/eventscreen/config.toml -v
 ```
 
 then `sudo systemctl restart eventscreen`. Remove it again with

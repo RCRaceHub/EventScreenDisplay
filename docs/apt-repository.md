@@ -9,7 +9,7 @@ and the other projects' packages), so a Pi or server is set up once and then
 gets everything with `apt install` and updates with `apt upgrade`.
 
 ```
- EventScreenDisplay ──tag v0.3.0──▶ GitHub release (eventscreen_0.3.0_all.deb)
+ EventScreenDisplay ──tag v0.3.0──▶ GitHub release (eventscreen_0.3.0_<arch>.deb)
  other project      ──tag v1.2.0──▶ GitHub release (other_1.2.0_arm64.deb …)
                                          │
                        RCRaceHub/apt  ◀──┘ workflow collects the .debs,

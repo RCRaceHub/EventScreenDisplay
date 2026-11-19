@@ -1,29 +1,48 @@
 #!/bin/bash
-# Build the eventscreen .deb into dist/.
+# Build the eventscreen .deb for one architecture into dist/.
 #
 #   packaging/build-deb.sh [VERSION]
+#   ARCH=armhf packaging/build-deb.sh 0.7.1
 #
-# VERSION defaults to __version__ in eventscreen/__init__.py. When given, it
-# is also written into the packaged __init__.py, so the agent reports the
-# version it was released as (CI passes the tag's version this way). Only needs
-# dpkg-deb, so it runs on any Debian/Ubuntu machine, a Pi or a CI runner.
-# Set MAINTAINER to override the Maintainer field.
+# ARCH is a Debian architecture: arm64 (64-bit Pi OS), armhf (32-bit Pi OS)
+# or amd64. It defaults to this machine's. VERSION defaults to the one in
+# internal/version/version.go; when given (CI passes the tag's version) it
+# is stamped into the binary, so the agent reports the version it was
+# released as. Needs Go and dpkg-deb, so it runs on any Debian/Ubuntu
+# machine or CI runner; the binary is cross-compiled and fully static.
+# Set BIN to package an already built binary instead, and MAINTAINER to
+# override the Maintainer field.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION=${1:-$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$SRC/eventscreen/__init__.py")}
+VERSION=${1:-$(sed -n 's/^var Version = "\(.*\)"/\1/p' "$SRC/internal/version/version.go")}
+ARCH=${ARCH:-$(dpkg --print-architecture)}
 MAINTAINER=${MAINTAINER:-"RCRaceHub <10654646+oggthemiffed@users.noreply.github.com>"}
 OUT="$SRC/dist"
-PKG="eventscreen_${VERSION}_all"
+PKG="eventscreen_${VERSION}_${ARCH}"
 ROOT="$(mktemp -d)/$PKG"
 trap 'rm -rf "$(dirname "$ROOT")"' EXIT
 
-# Files, in their installed locations.
-install -d "$ROOT/usr/lib/eventscreen"
-cp -r "$SRC/eventscreen" "$ROOT/usr/lib/eventscreen/"
-find "$ROOT/usr/lib/eventscreen" -name __pycache__ -prune -exec rm -rf {} +
-find "$ROOT/usr/lib/eventscreen" -type f -exec chmod 0644 {} +
-sed -i "s/^__version__ = \".*\"/__version__ = \"$VERSION\"/" "$ROOT/usr/lib/eventscreen/eventscreen/__init__.py"
+case "$ARCH" in
+  arm64) GOARCH=arm64 GOARM="" ;;
+  # Raspberry Pi OS's 32-bit userland is ARMv6 hard-float, which runs on
+  # every Pi (and GOARM=6 binaries run fine on the Pi 3 and Zero 2 W too).
+  armhf) GOARCH=arm GOARM=6 ;;
+  amd64) GOARCH=amd64 GOARM="" ;;
+  *) echo "unsupported ARCH $ARCH (arm64, armhf or amd64)" >&2; exit 1 ;;
+esac
+
+# The binary.
+install -d "$ROOT/usr/bin"
+if [[ -n ${BIN:-} ]]; then
+  install -m 0755 "$BIN" "$ROOT/usr/bin/eventscreen"
+else
+  (cd "$SRC" && CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM go build -trimpath \
+    -ldflags "-s -w -X github.com/RCRaceHub/EventScreenDisplay/internal/version.Version=$VERSION" \
+    -o "$ROOT/usr/bin/eventscreen" ./cmd/eventscreen)
+fi
+
+# Everything else, in its installed location.
 install -D -m 0755 "$SRC/deploy/eventscreen-setup"   "$ROOT/usr/sbin/eventscreen-setup"
 install -D -m 0755 "$SRC/deploy/eventscreen-check"   "$ROOT/usr/sbin/eventscreen-check"
 install -D -m 0644 "$SRC/deploy/eventscreen.service" "$ROOT/usr/lib/systemd/system/eventscreen.service"
@@ -38,7 +57,7 @@ cp "$SRC"/docs/*.md "$ROOT/usr/share/doc/eventscreen/"
 # Package metadata.
 install -d "$ROOT/DEBIAN"
 SIZE=$(du -sk --exclude=DEBIAN "$ROOT" | cut -f1)
-sed -e "s|@VERSION@|$VERSION|" -e "s|@MAINTAINER@|$MAINTAINER|" -e "s|@SIZE@|$SIZE|" \
+sed -e "s|@VERSION@|$VERSION|" -e "s|@ARCH@|$ARCH|" -e "s|@MAINTAINER@|$MAINTAINER|" -e "s|@SIZE@|$SIZE|" \
   "$SRC/packaging/debian/control" > "$ROOT/DEBIAN/control"
 for f in postinst prerm postrm; do
   install -m 0755 "$SRC/packaging/debian/$f" "$ROOT/DEBIAN/$f"
