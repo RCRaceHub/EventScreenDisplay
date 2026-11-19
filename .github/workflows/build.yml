@@ -87,10 +87,14 @@ jobs:
         run: make deb-${{ matrix.arch }} VERSION="$VERSION"
 
       - name: Check the binary runs
+        shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-user-static
-          # binfmt runs the ARM binaries through qemu.
+          if [[ ${{ matrix.arch }} != amd64 ]]; then
+            # binfmt runs the ARM binaries through qemu. The package was
+            # renamed in Ubuntu 26.04.
+            sudo apt-get install -y qemu-user-binfmt || sudo apt-get install -y qemu-user-static
+          fi
           out=$(dist/bin/eventscreen-linux-${{ matrix.arch }} version)
           echo "eventscreen version: $out"
           test "$out" = "$VERSION"
