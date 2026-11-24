@@ -4,12 +4,16 @@
 #
 #   sudo eventscreen-setup [--hostname screen-01] [--name "Pit lane board"]
 #                          [--browser cog|chromium] [--port 8080] [--token SECRET]
-#                          [--resolution 1920x1080@60D|auto]
+#                          [--resolution 1920x1080@60D|auto] [--offline]
 #
 # It sets the hostname, fixes the HDMI mode (1080p by default), keeps the
 # console from blanking or showing a login prompt, writes your options into
 # /etc/eventscreen/config.toml and restarts the viewer. Boot changes need a
 # reboot to take effect.
+#
+# --offline only writes files and enables or disables services, without
+# starting anything or setting the hostname. The SD card image build runs
+# it that way in a chroot, and eventscreen-bootconfig at boot.
 set -euo pipefail
 
 HOSTNAME_NEW=""
@@ -18,8 +22,9 @@ NAME=""
 PORT=""
 TOKEN=""
 RESOLUTION=""
+OFFLINE=""
 
-usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     --port)       PORT="$2"; shift 2 ;;
     --token)      TOKEN="$2"; shift 2 ;;
     --resolution) RESOLUTION="$2"; shift 2 ;;
+    --offline)    OFFLINE=1; shift ;;
     -h|--help)    usage 0 ;;
     *) echo "unknown option: $1" >&2; usage 1 ;;
   esac
@@ -76,6 +82,10 @@ if [[ -n "$NAME"  ]]; then set_conf name "\"$NAME\""; fi
 if [[ -n "$PORT"  ]]; then set_conf port "$PORT"; fi
 if [[ -n "$TOKEN" ]]; then set_conf api_token "\"$TOKEN\""; fi
 
+if [[ -n "$HOSTNAME_NEW" && -n $OFFLINE ]]; then
+  echo "--hostname can't be used with --offline" >&2
+  exit 1
+fi
 if [[ -n "$HOSTNAME_NEW" && "$HOSTNAME_NEW" != "$(hostname)" ]]; then
   step "Setting hostname to $HOSTNAME_NEW (reachable as $HOSTNAME_NEW.local)"
   hostnamectl set-hostname "$HOSTNAME_NEW"
@@ -119,6 +129,13 @@ fi
 if systemctl is-enabled getty@tty1.service >/dev/null 2>&1; then
   systemctl disable getty@tty1.service
   REBOOT=1
+fi
+
+if [[ -n $OFFLINE ]]; then
+  echo
+  echo "Done (offline): the settings take effect when the viewer next starts."
+  if [[ -n $REBOOT ]]; then echo "Reboot needed for the display changes."; fi
+  exit 0
 fi
 
 step "Restarting the viewer"

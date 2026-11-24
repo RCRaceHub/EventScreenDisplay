@@ -45,6 +45,8 @@ fi
 # Everything else, in its installed location.
 install -D -m 0755 "$SRC/deploy/eventscreen-setup"   "$ROOT/usr/sbin/eventscreen-setup"
 install -D -m 0755 "$SRC/deploy/eventscreen-check"   "$ROOT/usr/sbin/eventscreen-check"
+install -D -m 0755 "$SRC/deploy/eventscreen-bootconfig" "$ROOT/usr/sbin/eventscreen-bootconfig"
+install -D -m 0644 "$SRC/deploy/eventscreen-bootconfig.service" "$ROOT/usr/lib/systemd/system/eventscreen-bootconfig.service"
 install -D -m 0644 "$SRC/deploy/eventscreen.service" "$ROOT/usr/lib/systemd/system/eventscreen.service"
 install -D -m 0644 "$SRC/deploy/eventscreen-wifi.service" "$ROOT/usr/lib/systemd/system/eventscreen-wifi.service"
 install -D -m 0644 "$SRC/deploy/watchdog.conf"       "$ROOT/usr/lib/systemd/system.conf.d/eventscreen-watchdog.conf"

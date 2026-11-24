@@ -1,0 +1,23 @@
+# EventScreen settings for this screen.
+#
+# To use: copy this file to eventscreen.txt (in this same folder, the SD
+# card's boot partition), remove the # from the settings you want and change
+# them. The screen applies the file the next time it starts, then removes it
+# from the card. Settings you leave out keep their current value.
+#
+# Set the screen's hostname, Wi-Fi and SSH in Raspberry Pi Imager's settings
+# when you write the card, not here.
+
+# Friendly name shown on the idle screen and to the RCTC screen manager.
+#name=Pit lane board
+
+# If set, changes over the API need "Authorization: Bearer <token>".
+# 8 or more letters, digits or . _ ~ + / = -
+#token=change-me-to-something-long
+
+# API port.
+#port=8080
+
+# HDMI mode. 1920x1080@60D (the default) forces 1080p on even if the TV is
+# off at boot. auto uses what the TV prefers. Portrait: 1920x1080@60D,rotate=90
+#resolution=1920x1080@60D

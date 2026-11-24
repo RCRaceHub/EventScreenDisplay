@@ -117,6 +117,76 @@ jobs:
           name: eventscreen-deb-${{ matrix.arch }}
           path: dist/*.deb
 
+  image:
+    name: SD card image
+    needs: [deb]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: eventscreen-deb-arm64
+          path: dist
+      # Registers qemu for aarch64 with the F flag, so the image's own
+      # binaries run in a chroot.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y mtools parted jq xz-utils
+
+      - name: Work out the image name
+        shell: bash
+        run: |
+          source image/base-image.env
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then
+            name=${GITHUB_REF_NAME#v}
+          else
+            name=$(sed -n 's/^var Version = "\(.*\)"/\1/p' internal/version/version.go)-dev
+          fi
+          echo "IMAGE=eventscreen-$name-arm64.img" >> "$GITHUB_ENV"
+          echo "BASE_URL=$BASE_URL" >> "$GITHUB_ENV"
+          echo "BASE_SHA256=$BASE_SHA256" >> "$GITHUB_ENV"
+
+      - name: Cache the Raspberry Pi OS image
+        uses: actions/cache@v4
+        with:
+          path: base.img.xz
+          key: raspios-${{ env.BASE_SHA256 }}
+      - name: Download the Raspberry Pi OS image
+        shell: bash
+        run: |
+          [[ -f base.img.xz ]] || curl -fsSL --retry 3 -o base.img.xz "$BASE_URL"
+          echo "$BASE_SHA256  base.img.xz" | sha256sum -c
+
+      - name: Build the image
+        run: sudo image/build-image.sh base.img.xz dist/eventscreen_*_arm64.deb "$IMAGE"
+      - name: Check the image
+        run: sudo image/check-image.sh "$IMAGE"
+
+      - name: Compress and describe it for Raspberry Pi Imager
+        shell: bash
+        run: |
+          sudo chown "$USER" "$IMAGE"
+          xz -T0 -6 -k "$IMAGE"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/$IMAGE.xz"
+          image/imager-json.sh "$IMAGE" "$IMAGE.xz" "$url" "$(date -u +%F)" > eventscreen-imager.json
+          mkdir -p out && mv "$IMAGE.xz" eventscreen-imager.json out/
+          ls -l out
+          {
+            echo "### SD card image"
+            echo
+            echo "\`$IMAGE.xz\`: $(du -m "out/$IMAGE.xz" | cut -f1) MB compressed, $(du -m --apparent-size "$IMAGE" | cut -f1) MB written to the card."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eventscreen-image
+          path: out/*
+          compression-level: 0  # already xz
+          # Kept briefly on branches: about 900 MB each.
+          retention-days: ${{ startsWith(github.ref, 'refs/tags/v') && 30 || 5 }}
+
   docker:
     name: Docker image
     needs: [test]
@@ -141,7 +211,7 @@ jobs:
   release:
     name: Attach to release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [deb, docker]
+    needs: [deb, docker, image]
     runs-on: ubuntu-latest
     env:
       # Optional, lets a release publish to RCRaceHub/apt immediately.
@@ -152,14 +222,19 @@ jobs:
           pattern: eventscreen-deb-*
           merge-multiple: true
           path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: eventscreen-image
+          path: dist
 
       - name: Attach to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -l dist
-          gh release create "$GITHUB_REF_NAME" dist/*.deb --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes \
-            || gh release upload "$GITHUB_REF_NAME" dist/*.deb --repo "$GITHUB_REPOSITORY" --clobber
+          files=(dist/*.deb dist/*.img.xz dist/eventscreen-imager.json)
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Tell the apt repository about the release
         if: env.APT_DISPATCH_TOKEN != ''
