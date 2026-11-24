@@ -167,8 +167,8 @@ jobs:
       - name: Compress and describe it for Raspberry Pi Imager
         shell: bash
         run: |
-          sudo chown "$USER:" "$IMAGE"
-          xz -T0 -6 -k "$IMAGE"
+          # To stdout: xz -k fails copying the root-owned file's owner.
+          xz -T0 -6 -c "$IMAGE" > "$IMAGE.xz"
           url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/$IMAGE.xz"
           image/imager-json.sh "$IMAGE" "$IMAGE.xz" "$url" "$(date -u +%F)" > eventscreen-imager.json
           mkdir -p out && mv "$IMAGE.xz" eventscreen-imager.json out/
