@@ -167,7 +167,7 @@ jobs:
       - name: Compress and describe it for Raspberry Pi Imager
         shell: bash
         run: |
-          sudo chown "$USER" "$IMAGE"
+          sudo chown "$USER:" "$IMAGE"
           xz -T0 -6 -k "$IMAGE"
           url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/$IMAGE.xz"
           image/imager-json.sh "$IMAGE" "$IMAGE.xz" "$url" "$(date -u +%F)" > eventscreen-imager.json
