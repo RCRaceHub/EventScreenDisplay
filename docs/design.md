@@ -30,7 +30,8 @@ the screens on the LAN and tells each one what to show.
 - Be **controlled over the network** by a manager, with no keyboard or mouse.
 - **Survive** power cuts, network drops and browser crashes without anyone
   touching the Pi.
-- Be **simple to install** on stock Raspberry Pi OS Lite.
+- Be **simple to install** on stock Raspberry Pi OS Lite, or quicker still
+  from a ready-made SD card image.
 
 ## Features
 
@@ -292,6 +293,16 @@ nothing beyond the system services it uses (D-Bus, Avahi, NetworkManager).
 - Anything per-Pi or touching boot settings (hostname, HDMI mode, console)
   lives in `eventscreen-setup`, because a package shouldn't change those
   silently on install.
+- The **SD card image** ([sd-card-image.md](sd-card-image.md)) is the
+  official Pi OS Lite image with the arm64 package installed in a chroot and
+  `eventscreen-setup --offline` run, rather than a pi-gen build: it builds in
+  minutes and stays as close to stock as a hand-installed Pi. Per-card
+  settings come from Raspberry Pi Imager (hostname, user, Wi-Fi, SSH, through
+  Pi OS's own cloud-init) and from `eventscreen.txt` on the boot partition
+  (name, token, port, resolution), which `eventscreen-bootconfig.service`
+  applies before the viewer starts and then removes from the FAT partition.
+  A repository file (`eventscreen-imager.json`) lists the image in Imager
+  with `init_format: cloudinit-rpi`, so Imager still offers its settings.
 - The **Build** GitHub Action runs the tests, lints the code and scripts,
   builds each package (and runs each binary), test-installs the `amd64` one
   and builds the Docker image on every push and PR. Pushing a `v*` tag

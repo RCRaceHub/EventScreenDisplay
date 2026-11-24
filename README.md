@@ -22,7 +22,11 @@ on a TV, and is controlled over the network through a simple HTTP API.
 
 ## Quick start
 
-On a Pi running Raspberry Pi OS Lite, install the `.deb` from the
+The quickest way is the SD card image attached to each release: write it
+with Raspberry Pi Imager and switch the Pi on. See
+[docs/sd-card-image.md](docs/sd-card-image.md).
+
+Or, on a Pi running Raspberry Pi OS Lite, install the `.deb` from the
 [latest release](https://github.com/RCRaceHub/EventScreenDisplay/releases/latest)
 (`arm64` for 64-bit Raspberry Pi OS, `armhf` for 32-bit) and set the screen up:
 
@@ -45,6 +49,7 @@ curl -X PUT http://screen-01.local:8080/api/v1/playlist \
 ## Docs
 
 - [User guide](docs/user-guide.md): running screens at an event.
+- [SD card image](docs/sd-card-image.md): the quickest way to make a screen, with Raspberry Pi Imager.
 - [Installation](docs/installation.md): setting up a Pi, updating, troubleshooting.
 - [Design and features](docs/design.md): how it works and why.
 - [API reference](docs/API.md): the contract for the central manager.
@@ -114,6 +119,7 @@ internal/          the agent's packages (api, player, stage, browser, messages,
                    playlist, config, wifi, avahi, check)
 deploy/            files the package installs (services, config, eventscreen-setup) and install.sh
 packaging/         build-deb.sh and the Debian maintainer scripts
-.github/           CI: tests, lint, package builds, Docker image, release upload
+image/             the SD card image: build-image.sh, check-image.sh, the Imager listing
+.github/           CI: tests, lint, package builds, SD card image, Docker image, release upload
 docs/              user, install, design and API docs
 ```

@@ -20,7 +20,7 @@ VERSION ?= $(shell sed -n 's/^var Version = "\(.*\)"/\1/p' internal/version/vers
 PKG     := github.com/RCRaceHub/EventScreenDisplay
 LDFLAGS := -s -w -X $(PKG)/internal/version.Version=$(VERSION)
 GOBUILD := CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)"
-SHELLS  := deploy/install.sh deploy/eventscreen-setup packaging/build-deb.sh
+SHELLS  := deploy/install.sh deploy/eventscreen-setup deploy/eventscreen-bootconfig packaging/build-deb.sh image/build-image.sh image/imager-json.sh image/check-image.sh
 SHSH    := deploy/eventscreen-check packaging/debian/postinst packaging/debian/prerm packaging/debian/postrm
 
 .PHONY: build test race cover lint arm64 armhf amd64 all-arch deb-arm64 deb-armhf deb-amd64 debs docker clean

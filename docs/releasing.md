@@ -1,7 +1,9 @@
 # Releasing
 
 Each release is three Debian packages, one per architecture (`arm64`,
-`armhf`, `amd64`), attached to a GitHub release.
+`armhf`, `amd64`), and an SD card image (`eventscreen-<version>-arm64.img.xz`
+with `eventscreen-imager.json` for Raspberry Pi Imager, see
+[sd-card-image.md](sd-card-image.md)), attached to a GitHub release.
 
 ## Cut a release
 
@@ -21,9 +23,9 @@ The tag is the version. There's nothing to bump in the code first.
 2. The **Build** workflow runs the tests, builds `eventscreen_0.5.1_arm64.deb`,
    `eventscreen_0.5.1_armhf.deb` and `eventscreen_0.5.1_amd64.deb` with that
    version stamped into the binary (the screen reports `0.5.1` in `/info`),
-   and attaches them to the release, creating the release with generated
-   notes if you pushed only a tag. The `.deb`s appear a few minutes after the
-   tag.
+   and the SD card image, and attaches them to the release, creating the
+   release with generated notes if you pushed only a tag. The `.deb`s and the
+   image appear about 15 minutes after the tag, once the image is built.
 
 Pre-releases work the same way: `v0.6.0-rc1` builds `0.6.0~rc1`, which apt
 treats as older than `0.6.0`. A tag that isn't a version (for example
@@ -49,7 +51,8 @@ every `v*` tag, as separate checks:
 | `Lint (gofmt, vet, shellcheck)` | Go formatting and `go vet`, and `shellcheck` on the installer, `eventscreen-setup`, `eventscreen-check` and the package scripts |
 | `Package (arm64)` / `(armhf)` / `(amd64)` | Runs only if both pass. Builds that `.deb`, runs its binary (ARM ones under qemu) to check the version, and installs and purges the `amd64` one on Ubuntu |
 | `Docker image` | Builds the headless image for amd64, arm64 and arm/v6, and smoke-tests its API |
-| `Attach to release` | Tags only: attaches the three `.deb`s to the release |
+| `SD card image` | Builds the image from the official Pi OS Lite and the `arm64` package, runs `image/check-image.sh` on it, and uploads it as the `eventscreen-image` artifact (kept 5 days on branches). About 12 minutes |
+| `Attach to release` | Tags only: attaches the three `.deb`s, the image and `eventscreen-imager.json` to the release |
 
 To stop anything being merged with failing tests, make the checks required:
 **Settings → Branches → Add branch protection rule** (or **Rulesets**) for

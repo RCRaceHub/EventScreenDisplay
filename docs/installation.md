@@ -20,6 +20,14 @@ writing the SD card and downloading packages.
   for the Zero 2 W and Pi 3 B; the Pi 3 B+ also does 5 GHz.
 - No keyboard or mouse is needed at any point.
 
+## Quickest: the SD card image
+
+Each release has a ready-made SD card image with the viewer already
+installed. Write it with Raspberry Pi Imager, put the card in the Pi and
+switch it on; there's nothing to do over SSH. See
+[sd-card-image.md](sd-card-image.md). The rest of this page sets a Pi up by
+hand from stock Raspberry Pi OS, which ends up the same.
+
 ## 1. Write the SD card
 
 1. Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/).
@@ -91,6 +99,7 @@ leave out stay as they are.
 | `--browser cog\|chromium` | Browser to use. Default `cog` (recommended). `chromium` installs Chromium and the `cage` compositor. |
 | `--port N` | API port. Default 8080. |
 | `--token SECRET` | Require `Authorization: Bearer SECRET` for any change. |
+| `--offline` | Only write files and enable or disable services: don't start anything or set the hostname. Used when building the SD card image and by `eventscreen-bootconfig`. |
 | `--resolution MODE` | HDMI mode. Default `1920x1080@60D`; the `D` forces HDMI on even if the TV doesn't report itself at boot. `auto` uses whatever the TV prefers. Add rotation like `1920x1080@60D,rotate=90`. |
 
 ### What gets installed
@@ -223,11 +232,13 @@ installs the package, keeping your config and playlist.
 | `/usr/bin/eventscreen` | The agent (also runs the Wi-Fi service, mDNS file and check) |
 | `/usr/sbin/eventscreen-setup` | Per-Pi setup command |
 | `/usr/sbin/eventscreen-check` | Health check (see [Troubleshooting](#troubleshooting)) |
+| `/usr/sbin/eventscreen-bootconfig` | Applies `eventscreen.txt` from the boot partition at boot (see [sd-card-image.md](sd-card-image.md#per-screen-settings-eventscreentxt)) |
 | `/etc/eventscreen/config.toml` | Configuration (see comments inside) |
 | `/var/lib/eventscreen/playlist.json` | The saved playlist |
 | `/var/lib/eventscreen/messages.json` | The current event message and banner |
 | `/usr/lib/systemd/system/eventscreen.service` | The service |
 | `/usr/lib/systemd/system/eventscreen-wifi.service` | Wi-Fi fallback hotspot service |
+| `/usr/lib/systemd/system/eventscreen-bootconfig.service` | Runs `eventscreen-bootconfig` when `eventscreen.txt` is on the boot partition |
 | `/etc/NetworkManager/dnsmasq-shared.d/eventscreen-captive.conf` | Sends phones on the setup hotspot to the setup page |
 | `/etc/avahi/services/eventscreen.service` | mDNS advertisement (generated from the config) |
 | `/etc/NetworkManager/conf.d/eventscreen-wifi-powersave.conf` | Wi-Fi power saving off |

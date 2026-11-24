@@ -1,0 +1,89 @@
+#!/bin/bash
+# Applies /boot/firmware/eventscreen.txt, a settings file you can write on
+# the SD card's boot partition from any laptop (it's the FAT partition that
+# Windows and macOS show when the card is plugged in). Run at boot by
+# eventscreen-bootconfig.service, before the viewer starts, only when the
+# file is there.
+#
+# The file holds key=value lines; blank lines and lines starting with # are
+# ignored:
+#
+#   name=Pit lane board
+#   token=a-long-secret
+#   port=8080
+#   resolution=1920x1080@60D
+#
+# The settings are passed to eventscreen-setup --offline, then the file is
+# moved to /var/lib/eventscreen/eventscreen.txt.applied (readable only by
+# root), so the API token doesn't stay on the FAT partition and the file
+# isn't applied again. If a display setting changed, the Pi reboots once.
+# A file with a mistake in it is renamed eventscreen.txt.error with the
+# reason at the top, and nothing in it is applied.
+set -euo pipefail
+
+ROOT=${EVENTSCREEN_ROOT:-}
+BOOT=$ROOT/boot/firmware
+[[ -d $BOOT ]] || BOOT=$ROOT/boot
+FILE=$BOOT/eventscreen.txt
+APPLIED=$ROOT/var/lib/eventscreen/eventscreen.txt.applied
+SETUP=${EVENTSCREEN_SETUP:-/usr/sbin/eventscreen-setup}
+
+[[ -f $FILE ]] || exit 0
+
+fail() {
+  echo "eventscreen.txt: $*" >&2
+  { echo "# Not applied: $*"; echo "# Fix it and rename this file back to eventscreen.txt."; cat "$FILE"; } > "$FILE.error"
+  rm -f "$FILE"
+  exit 0  # don't hold up the viewer
+}
+
+# Characters that would break the quoted TOML string or eventscreen-setup's sed.
+NAME_BAD='["\\|&]'
+ARGS=()
+lineno=0
+# Windows editors add a carriage return to each line; strip it.
+while IFS= read -r line || [[ -n $line ]]; do
+  lineno=$((lineno + 1))
+  line=${line%$'\r'}
+  line=${line#$'\xef\xbb\xbf'}  # and Notepad may start with a byte order mark
+  [[ $line =~ ^[[:space:]]*(#|$) ]] && continue
+  [[ $line == *=* ]] || fail "line $lineno isn't key=value: $line"
+  key=${line%%=*}
+  value=${line#*=}
+  key=${key//[[:space:]]/}
+  # Trim spaces around the value, and one pair of surrounding quotes.
+  value=${value#"${value%%[![:space:]]*}"}
+  value=${value%"${value##*[![:space:]]}"}
+  if [[ $value =~ ^\"(.*)\"$ ]]; then value=${BASH_REMATCH[1]}; fi
+  [[ -n $value ]] || fail "line $lineno: $key has no value"
+  case $key in
+    name)
+      # Written into the TOML config as a quoted string.
+      [[ $value =~ $NAME_BAD ]] && fail "name can't contain \", \\, | or &"
+      (( ${#value} <= 64 )) || fail "name is longer than 64 characters"
+      ARGS+=(--name "$value") ;;
+    token)
+      [[ $value =~ ^[A-Za-z0-9._~+/=-]{8,}$ ]] || fail "token must be 8 or more letters, digits or ._~+/=-"
+      ARGS+=(--token "$value") ;;
+    port)
+      [[ $value =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 65535 )) || fail "port must be a number from 1 to 65535"
+      ARGS+=(--port "$value") ;;
+    resolution)
+      [[ $value == auto || $value =~ ^[0-9]+x[0-9]+(@[0-9]+)?[DdemMRi]*(,[a-z_]+=[0-9a-z]+)*$ ]] \
+        || fail "resolution must be like 1920x1080@60D or auto"
+      ARGS+=(--resolution "$value") ;;
+    *) fail "line $lineno: unknown setting $key (name, token, port or resolution)" ;;
+  esac
+done < "$FILE"
+
+out=$("$SETUP" --offline "${ARGS[@]}" 2>&1) || fail "eventscreen-setup failed: $out"
+echo "$out"
+
+install -d -m 0755 "$(dirname "$APPLIED")"
+install -m 0600 "$FILE" "$APPLIED"
+rm -f "$FILE"
+
+if grep -q "Reboot needed" <<<"$out"; then
+  echo "Rebooting to apply the display settings"
+  systemctl --no-block reboot
+fi

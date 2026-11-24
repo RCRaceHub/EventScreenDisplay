@@ -7,7 +7,7 @@ package version
 //
 // packaging/build-deb.sh does this, so the default here is only what a plain
 // "go build" or a branch build reports.
-var Version = "0.7.0"
+var Version = "0.8.0"
 
 // API is the HTTP API's major version (the "v1" in /api/v1).
 const API = "1"

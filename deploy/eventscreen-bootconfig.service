@@ -1,0 +1,14 @@
+[Unit]
+Description=Apply eventscreen.txt from the SD card's boot partition
+Documentation=file:///usr/share/doc/eventscreen/sd-card-image.md
+ConditionPathExists=|/boot/firmware/eventscreen.txt
+ConditionPathExists=|/boot/eventscreen.txt
+After=local-fs.target
+Before=eventscreen.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/eventscreen-bootconfig
+
+[Install]
+WantedBy=multi-user.target
